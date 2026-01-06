@@ -1,0 +1,21 @@
+# --- System & Python ---
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+
+# --- Frontend ---
+node_modules/
+dist/
+npm-debug.log*
+
+# --- Environment Secrets ---
+.env
+
+# --- Large Files (>100MB) ---
+*.parquet
+*.csv
+*.xlsx
