@@ -7,6 +7,7 @@ import json
 import jellyfish
 from pathlib import Path
 from typing import List, Optional
+from pydantic import BaseModel
 
 # --- CONFIGURATION ---
 BASE_DIR = Path(__file__).resolve().parent
@@ -171,110 +172,89 @@ NAME_COL = "BLDG_NAME"
 CODE_COL = "BLDG_CODE" 
 
 
-# Helper function
-def fuzzy_matching(building_name: str):
-    df = app.state.gdf
-    df['match_score'] = df[NAME_COL].apply(
-        lambda x: jellyfish.damerau_levenshtein_distance(building_name.lower(), x.lower())
+def find_building_match(query: str, df: gpd.GeoDataFrame):
+    """
+    Unified logic to find a building by Code OR Name.
+    Returns the best matching Row (Series) or None.
+    """
+    query_str = str(query).strip()
+    query_lower = query_str.lower()
+
+    # --- STRATEGY 1: CHECK BY CODE ---
+    # If the input is short (e.g. "077", "77"), it's likely a code.
+    
+    # 1a. Exact Code Match
+    code_match = df[df[CODE_COL].astype(str).str.lower() == query_lower]
+    if not code_match.empty:
+        return code_match.iloc[0]
+
+    # 1b. Zero-Padded Code Match (e.g. "77" -> "077")
+    if query_str.isdigit():
+        padded_code = query_str.zfill(3)
+        padded_match = df[df[CODE_COL].astype(str) == padded_code]
+        if not padded_match.empty:
+            return padded_match.iloc[0]
+
+    # --- STRATEGY 2: CHECK BY NAME ---
+    
+    # 2a. Exact Name Match
+    name_match = df[df[NAME_COL].astype(str).str.lower() == query_lower]
+    if not name_match.empty:
+        return name_match.iloc[0]
+
+    # 2b. Substring Match (e.g. "Library" -> "Price Gilbert Library")
+    # We use regex=False for simple string containment
+    substring_matches = df[df[NAME_COL].astype(str).str.lower().str.contains(query_lower, regex=False)]
+    
+    if not substring_matches.empty:
+        # Optimization: Pick the shortest name (usually the most generic/correct one)
+        # e.g., prefer "Library" over "Library Extension Building" if possible
+        best_idx = substring_matches[NAME_COL].astype(str).str.len().idxmin()
+        return substring_matches.loc[best_idx]
+
+    # 2c. Fuzzy Match (Jellyfish)
+    # This is your logic for handling typos like "Libary"
+    # We calculate score for ALL rows (a bit slow, but fine for <500 buildings)
+    df = df.copy() # Work on a copy to avoid warnings
+    df['match_score'] = df[NAME_COL].astype(str).apply(
+        lambda x: jellyfish.damerau_levenshtein_distance(query_lower, x.lower())
     )
     
-    # 2. Sort by the score (smallest distance first) and take top 3
-    top_matches = df.sort_values(by='match_score', ascending=True).head(3)
+    # Sort by score (ascending distance)
+    # A distance of 0 is exact, 1 is one typo, etc.
+    # We require a reasonably close match (e.g., distance < 5)
+    best_fuzzy = df.sort_values(by='match_score', ascending=True).iloc[0]
+    
+    # Threshold: If the "best" match is still very different, ignore it.
+    # (Length difference serves as a rough heuristic)
+    if best_fuzzy['match_score'] < 5: 
+        return best_fuzzy
 
-    return top_matches
+    return None
 
-
-# endpoint: bldg_name -> bldg_code
-@app.get("/get-code/{building_name}")
-async def get_code_from_name(building_name: str):
-    df = app.state.gdf
+@app.get("/search")
+def search_building(q: str):
+    """
+    Smart Search: Accepts Name OR Code, returns coordinates for Map Zoom.
+    """
+    if db["campus"] is None:
+        raise HTTPException(status_code=500, detail="Data not loaded")
     
-    # Test 1: try to find EXACT match
-    # find rows where the name matches (case-insensitive)
-    # .str.lower() for case insensitivity
-    result = df[df[NAME_COL].str.lower() == building_name.lower()]
-
-    if not result.empty:
-        return {"name": result.iloc[0][NAME_COL], "code": result.iloc[0][CODE_COL]}
+    campus = db["campus"]
     
-    # Test 2: Substring Match (The Fix) ---
-    # Good for: "Library" -> Matches "Gilbert Memorial Library"
-    # We look for rows where the Name contains the Input
-    substring_matches = df[df[NAME_COL].str.lower().str.contains(building_name, regex=False)]
+    # Use our unified logic
+    match = find_building_match(q, campus)
     
-    if not substring_matches.empty:
-        # Optimization: If multiple buildings contain "Library", 
-        # usually the shortest one is the most generic/correct one, 
-        # or you just pick the first one.
-        # Let's pick the one with the shortest name to avoid "The Library of Science" if "Library" exists.
-        best_match = substring_matches.loc[substring_matches[NAME_COL].str.len().idxmin()]
-        
-        return {
-            "name": best_match[NAME_COL], 
-            "code": best_match[CODE_COL],
-            "note": f"Found via substring search. Did you mean '{best_match[NAME_COL]}'?"
-        }
+    if match is None:
+        raise HTTPException(status_code=404, detail="Building not found")
     
-    # Test 3: Fuzzy Match (Fallback) ---
-    # Good for: "Libary" (Typos)
-    fuzzy_result = fuzzy_matching(building_name)
+    # Calculate Centroid for the Map Zoom
+    centroid = match.geometry.centroid
     
-    if not fuzzy_result.empty:
-        best_match = fuzzy_result.iloc[0]
-        return {
-            "name": best_match[NAME_COL], 
-            "code": best_match[CODE_COL],
-            "note": f"Exact match not found. Did you mean '{best_match[NAME_COL]}'?"
-        }
-    
-    # if nothing was returned, then we couldn't find anything
-    raise HTTPException(status_code=404, detail="Building not found")
-
-# endpoint: bldg_code -> bldg_name
-@app.get("/get-name/{building_code}")
-async def get_name_from_code(building_code: str):
-    df = app.state.gdf
-    
-    # Test 1: find rows where the code matches EXACTLY
-    result = df[df[CODE_COL].str.lower() == building_code.lower()]
-    
-    if not result.empty:
-        return {"name": result.iloc[0][NAME_COL], "code": result.iloc[0][CODE_COL]}
-    
-    # Test 2: Zero Padding
-    # User typed "77". We try turning it into "077" (standard 3-digit code)
-    # .zfill(3) turns "7" -> "007", "77" -> "077"
-    padded_input = building_code.zfill(3)
-    
-    # Only run this check if the padded version is actually different from what they typed
-    if padded_input != building_code:
-        result = df[df[CODE_COL] == padded_input]
-        
-        if not result.empty:
-            best_match = result.iloc[0]
-            return {
-                "name": best_match[NAME_COL], 
-                "code": best_match[CODE_COL],
-                "note": f"Match found by adding leading zeros. Did you mean '{best_match[CODE_COL]}'?"
-            }
-    
-    # Test 3: Substring Match (The Fix) ---
-    # Good for: "Library" -> Matches "Gilbert Memorial Library"
-    # We look for rows where the Name contains the Input
-    substring_matches = df[df[CODE_COL].str.lower().str.contains(building_code.lower(), regex=False)]
-    
-    if not substring_matches.empty:
-        # Optimization: If multiple buildings contain "Library", 
-        # usually the shortest one is the most generic/correct one, 
-        # or you just pick the first one.
-        # Let's pick the one with the shortest name to avoid "The Library of Science" if "Library" exists.
-        best_match = substring_matches.loc[substring_matches[CODE_COL].str.len().idxmin()]
-        
-        return {
-            "name": best_match[NAME_COL], 
-            "code": best_match[CODE_COL],
-            "note": f"Found via substring search. Did you mean '{best_match[CODE_COL]}'?"
-        }
-
-    # if nothing was returned, then we couldn't find anything
-    raise HTTPException(status_code=404, detail="Building not found")
+    return {
+        "name": match[NAME_COL],
+        "code": match[CODE_COL],
+        "lat": centroid.y,
+        "lon": centroid.x,
+        "category": match.get('building_category', 'Unknown')
+    }

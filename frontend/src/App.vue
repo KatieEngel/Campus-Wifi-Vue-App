@@ -11,6 +11,8 @@ const timeValue = ref(720); // Minutes from midnight (12:00 PM default)
 const heatmapData = ref(null);
 const timelineData = ref([]);
 const loading = ref(false);
+const searchQuery = ref("");
+const mapTarget = ref(null);
 
 // Helper to convert slider (0-1440) to Hour/Minute
 function minsToTime(val) {
@@ -28,6 +30,14 @@ function formatTimeDisplay(val) {
   const h12 = h % 12 || 12;
   const mStr = m.toString().padStart(2, '0');
   return `${h12}:${mStr} ${ampm}`;
+}
+
+// Helper to get 24-hour format for the Chart matching (e.g., "13:30")
+function formatTime24(val) {
+  const { h, m } = minsToTime(val);
+  const hStr = h.toString().padStart(2, '0');
+  const mStr = m.toString().padStart(2, '0');
+  return `${hStr}:${mStr}`;
 }
 
 // API Calls
@@ -73,6 +83,34 @@ async function updateDashboard() {
   }
 }
 
+async function handleSearch() {
+  if (!searchQuery.value) return;
+  
+  try {
+    const res = await fetch(`http://127.0.0.1:8000/search?q=${searchQuery.value}`);
+    if (!res.ok) {
+      alert("Building not found!");
+      return;
+    }
+    
+    const data = await res.json();
+    console.log("Found:", data);
+    
+    // Trigger the map movement
+    mapTarget.value = { 
+      lat: data.lat, 
+      lon: data.lon, 
+      name: data.name 
+    };
+    
+    // Clear box (optional)
+    searchQuery.value = "";
+    
+  } catch (e) {
+    console.error(e);
+  }
+}
+
 // Create a unique key that changes whenever Date OR Time changes
 const mapRenderKey = computed(() => {
   return `${selectedDate.value}-${timeValue.value}`;
@@ -91,6 +129,19 @@ onMounted(() => {
   <div class="dashboard">
     <div class="sidebar">
       <h2>Controls</h2>
+
+      <div class="control-group search-group">
+        <label>Find Building</label>
+         <div class="search-row">
+          <input 
+          v-model="searchQuery" 
+          @keyup.enter="handleSearch"
+          placeholder="e.g. Library" 
+          />
+          <button @click="handleSearch">Go</button>
+        </div>
+      </div>
+      <hr class="divider" />
       
       <div class="control-group">
         <label>Select Date</label>
@@ -122,7 +173,8 @@ onMounted(() => {
           <div style="flex: 1; min-height: 0;">
              <CampusMap 
               :geoJsonData="heatmapData" 
-              :renderKey="mapRenderKey" 
+              :renderKey="mapRenderKey"
+              :flyTo="mapTarget"
             />
           </div>
           
@@ -134,7 +186,7 @@ onMounted(() => {
           <div class="chart-wrapper">
              <OccupancyChart 
               :timelineData="timelineData" 
-              :selectedTime="formatTimeDisplay(timeValue)"
+              :selectedTime="formatTime24(timeValue)"
             />
           </div>
         </div>
@@ -269,6 +321,35 @@ body {
   flex: 1;
   position: relative;
   min-height: 0;
+}
+
+.search-row {
+  display: flex;
+  gap: 5px;
+}
+
+.search-row input {
+  flex: 1;
+}
+
+.search-row button {
+  padding: 8px 12px;
+  background-color: #3b82f6; /* Blue */
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.search-row button:hover {
+  background-color: #2563eb;
+}
+
+.divider {
+  border: 0;
+  border-top: 1px solid #ddd;
+  margin: 20px 0;
 }
 
 /* Sidebar Inputs */

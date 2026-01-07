@@ -17,12 +17,17 @@ L.Icon.Default.mergeOptions({
 
 const props = defineProps({
   geoJsonData: Object,
-  renderKey: String
+  renderKey: String,
+  flyTo: Object
 });
 
 const zoom = ref(15);
 const map = ref(null);
 let geoJsonLayer = null;
+
+// --- THE MISSING LINE IS HERE ---
+let layerLookup = {}; 
+// --------------------------------
 
 // COLOR LOGIC
 const RES_COLORS = ['#FFEDF0', '#FFC9D4', '#FF9FAD', '#FF6384', '#DC143C', '#8B0000'];
@@ -32,42 +37,38 @@ function getColor(occupancy, category) {
   const cat = (category || 'Unknown').trim(); 
   const occ = occupancy || 0;
 
-  // 2. Determine Intensity Index (0 to 5)
+  // Determine Intensity Index (0 to 5)
   let index = 0;
-  if (occ > 50) index = 5;       // High Occupancy -> Darkest
+  if (occ > 50) index = 5;       
   else if (occ > 30) index = 4;
   else if (occ > 15) index = 3;
   else if (occ > 5) index = 2;
-  else if (occ > 0) index = 1;   // Low Occupancy -> Light
+  else if (occ > 0) index = 1;   
   
-  // Pick the Color Palette
   if (cat === 'Residential') return RES_COLORS[index];
   if (cat === 'Non-Residential') return NON_RES_COLORS[index];
-  // If you see Gray, it means the category string didn't match Residential/Non-Residential
-  return '#737373'; // Unknown
+  return '#737373'; 
 }
 
 function updateLayer() {
-  // 1. Safety Check: Map and Data must exist
   if (!map.value || !map.value.leafletObject || !props.geoJsonData) return;
 
   const leafletMap = map.value.leafletObject;
 
-  // 2. Remove Old Layer (Clean slate)
+  // Remove Old Layer
   if (geoJsonLayer) {
     leafletMap.removeLayer(geoJsonLayer);
   }
+  
+  // Reset the lookup table for the new layer
+  layerLookup = {}; 
 
-  // 3. Create New Layer MANUALLY
-  // This bypasses the Vue wrapper issues completely
+  // Create New Layer MANUALLY
   geoJsonLayer = L.geoJSON(props.geoJsonData, {
     style: (feature) => {
       const occ = feature?.properties?.occupancy || 0;
       const cat = feature?.properties?.building_category;
       
-      // DEBUG: This should absolutely print now
-      console.log(`MANUAL STYLE: ${feature?.properties?.BLDG_NAME} -> ${occ}`);
-
       return {
         fillColor: getColor(occ, cat),
         weight: 1,
@@ -77,32 +78,65 @@ function updateLayer() {
       };
     },
     onEachFeature: (feature, layer) => {
-      layer.bindTooltip(`
-        <strong>${feature.properties.BLDG_NAME}</strong><br>
-        Occupancy: ${feature.properties.occupancy}<br>
-        Type: ${feature.properties.building_category}
-      `);
+      const name = feature.properties.BLDG_NAME;
+      
+      const popupContent = `
+        <div style="font-family: sans-serif; font-size: 14px; min-width: 150px;">
+          <h4 style="margin: 0 0 8px 0; color: #333;">${name}</h4>
+          <div style="margin-bottom: 4px;">
+            <strong>Occupancy:</strong> ${feature.properties.occupancy}
+          </div>
+          <div>
+            <strong>Type:</strong> ${feature.properties.building_category}
+          </div>
+        </div>
+      `;
+
+      layer.bindPopup(popupContent);
+      
+      // Save this layer to our lookup table
+      if (name) {
+        layerLookup[name] = layer;
+      }
     }
   }).addTo(leafletMap);
 }
 
-// Watch for changes in the key (Time/Date) and re-draw
+// Watchers
 watch(() => props.renderKey, () => {
   updateLayer();
 });
 
-// Watch for initial map load
 watch(() => map.value, (newVal) => {
   if (newVal) updateLayer();
 });
 
-// Watch for initial data load
 watch(() => props.geoJsonData, (newVal) => {
   if (newVal) updateLayer();
 });
 
+watch(() => props.flyTo, (target) => {
+  if (target && map.value) {
+    const leafletMap = map.value.leafletObject; 
+    
+    // 1. Fly
+    leafletMap.flyTo([target.lat, target.lon], 18, {
+      animate: true,
+      duration: 1.5 
+    });
+    
+    // 2. Open Popup using the lookup table
+    const targetLayer = layerLookup[target.name];
+    
+    if (targetLayer) {
+      setTimeout(() => {
+        targetLayer.openPopup();
+      }, 500); 
+    }
+  }
+});
+
 onMounted(() => {
-  // Try to render immediately if data is ready
   nextTick(() => {
     updateLayer();
   });
@@ -125,7 +159,9 @@ onMounted(() => {
 .map-wrapper {
   height: 100%;
   width: 100%;
-  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #ddd;
   z-index: 1;
 }
 </style>
