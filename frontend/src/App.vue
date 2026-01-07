@@ -1,12 +1,14 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, computed } from 'vue';
 import CampusMap from './components/CampusMap.vue';
+import OccupancyChart from './components/OccupancyChart.vue';
 
 // State
 const dates = ref([]);
 const selectedDate = ref('');
 const timeValue = ref(720); // Minutes from midnight (12:00 PM default)
 const heatmapData = ref(null);
+const timelineData = ref([]);
 const loading = ref(false);
 
 // Helper to convert slider (0-1440) to Hour/Minute
@@ -29,23 +31,40 @@ function formatTimeDisplay(val) {
 
 // API Calls
 async function fetchMetadata() {
-  const res = await fetch('http://127.0.0.1:8000/metadata');
-  const data = await res.json();
-  dates.value = data.dates;
-  if(dates.value.length > 0) selectedDate.value = dates.value[0];
+  try {
+    const res = await fetch('http://127.0.0.1:8000/metadata');
+    const data = await res.json();
+    dates.value = data.dates;
+    if(dates.value.length > 0) selectedDate.value = dates.value[0];
+  } catch (e) {
+    console.error("Backend offline?", e);
+  }
+  
 }
 
-async function updateHeatmap() {
+async function updateDashboard() {
   if (!selectedDate.value) return;
   loading.value = true;
   
   const { h, m } = minsToTime(timeValue.value);
   
   try {
-    const res = await fetch(
+    // 1. Fetch Map Data
+    const mapRes = await fetch(
       `http://127.0.0.1:8000/heatmap?date=${selectedDate.value}&hour=${h}&minute=${m}`
     );
-    heatmapData.value = await res.json();
+    const jsonData = await mapRes.json();
+    // --- DEBUG LOG ---
+    console.log("App.vue received data:", jsonData); 
+    // -----------------
+    heatmapData.value = jsonData;
+
+    // 2. Fetch Timeline Data (Only needs to happen when Date changes, but safe to call here)
+    const chartRes = await fetch(
+      `http://127.0.0.1:8000/timeline?date=${selectedDate.value}`
+    );
+    timelineData.value = await chartRes.json();
+
   } catch (e) {
     console.error(e);
   } finally {
@@ -53,12 +72,14 @@ async function updateHeatmap() {
   }
 }
 
-// Watchers
-watch(timeValue, () => {
-  // Debounce could be added here
-  updateHeatmap();
+// Create a unique key that changes whenever Date OR Time changes
+const mapRenderKey = computed(() => {
+  return `${selectedDate.value}-${timeValue.value}`;
 });
-watch(selectedDate, updateHeatmap);
+
+// Watchers
+watch(timeValue, updateDashboard);
+watch(selectedDate, updateDashboard);
 
 onMounted(() => {
   fetchMetadata();
@@ -94,11 +115,17 @@ onMounted(() => {
         <h1>Campus Occupancy Visualizer</h1>
       </div>
 
-      <CampusMap :geoJsonData="heatmapData" />
+      <CampusMap 
+        :geoJsonData="heatmapData" 
+        :renderKey="mapRenderKey" 
+      />
       
       <div class="graphs-placeholder">
         <h3>Occupancy Timeline</h3>
-        <p>(Chart.js implementation goes here)</p>
+        <OccupancyChart 
+          :timelineData="timelineData" 
+          :selectedTime="formatTimeDisplay(timeValue)"
+        />
       </div>
     </div>
   </div>

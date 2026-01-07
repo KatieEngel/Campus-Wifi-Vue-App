@@ -38,6 +38,9 @@ async def lifespan(app: FastAPI):
     # 1. Load Parquet Data
     if PARQUET_FILE.exists():
         df = pd.read_parquet(PARQUET_FILE)
+
+        df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
+
         # Process dates
         df['time_bin'] = pd.to_datetime(df['time_bin'])
         df['date_str'] = df['time_bin'].dt.strftime('%Y-%m-%d') # String for easy filtering
@@ -57,6 +60,9 @@ async def lifespan(app: FastAPI):
         with open(GEOJSON_FILE, 'r') as f:
             raw_geo = json.load(f)
         campus_gdf = gpd.GeoDataFrame.from_features(raw_geo['features'], crs="EPSG:4326")
+
+        if 'BLDG_CODE' in campus_gdf.columns:
+             campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
         
         # Apply Classification
         if 'BLDG_TYPE' in campus_gdf.columns:
