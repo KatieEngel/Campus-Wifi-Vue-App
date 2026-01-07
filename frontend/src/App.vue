@@ -2,6 +2,7 @@
 import { ref, onMounted, watch, computed } from 'vue';
 import CampusMap from './components/CampusMap.vue';
 import OccupancyChart from './components/OccupancyChart.vue';
+import MapLegend from './components/MapLegend.vue';
 
 // State
 const dates = ref([]);
@@ -118,10 +119,14 @@ onMounted(() => {
       <div class="viz-container">
         
         <div class="map-panel">
-          <CampusMap 
-            :geoJsonData="heatmapData" 
-            :renderKey="mapRenderKey" 
-          />
+          <div style="flex: 1; min-height: 0;">
+             <CampusMap 
+              :geoJsonData="heatmapData" 
+              :renderKey="mapRenderKey" 
+            />
+          </div>
+          
+          <MapLegend /> 
         </div>
         
         <div class="chart-panel">
