@@ -123,11 +123,9 @@ onMounted(() => {
 
 <style scoped>
 .map-wrapper {
-  height: 600px;
+  height: 100%;
   width: 100%;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid #ddd;
+  border: none;
   z-index: 1;
 }
 </style>

@@ -115,62 +115,159 @@ onMounted(() => {
         <h1>Campus Occupancy Visualizer</h1>
       </div>
 
-      <CampusMap 
-        :geoJsonData="heatmapData" 
-        :renderKey="mapRenderKey" 
-      />
-      
-      <div class="graphs-placeholder">
-        <h3>Occupancy Timeline</h3>
-        <OccupancyChart 
-          :timelineData="timelineData" 
-          :selectedTime="formatTimeDisplay(timeValue)"
-        />
+      <div class="viz-container">
+        
+        <div class="map-panel">
+          <CampusMap 
+            :geoJsonData="heatmapData" 
+            :renderKey="mapRenderKey" 
+          />
+        </div>
+        
+        <div class="chart-panel">
+          <h3>Occupancy Timeline</h3>
+          <div class="chart-wrapper">
+             <OccupancyChart 
+              :timelineData="timelineData" 
+              :selectedTime="formatTimeDisplay(timeValue)"
+            />
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
 </template>
 
+<style>
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+body {
+  margin: 0 !important;      /* Force removal of margins */
+  padding: 0 !important;     /* Force removal of padding */
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;          /* Stop scrollbars */
+  display: block !important; /* Override any 'flex' defaults on body */
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  display: block;            /* Ensure the Vue root div behaves */
+}
+</style>
+
 <style scoped>
 .dashboard {
   display: flex;
-  height: 100vh;
-  font-family: Arial, sans-serif;
+  height: 100%;
+  width: 100%;
+  /* 1. Give the "background" a color (light gray usually looks best) */
+  background-color: #f0f2f5; 
+  /* 2. Add the "breathing room" around the entire app */
+  padding: 12px; 
+  /* 3. Add a gap between the sidebar and the main content */
+  gap: 12px; 
+  box-sizing: border-box;
 }
 
 .sidebar {
   width: 300px;
-  background-color: #f8f9fa;
+  background-color: #ffffff;
+  /* Remove the border-right since we now have a physical gap */
+  border: 1px solid #e5e7eb; 
+  border-radius: 12px; /* Round the corners */
   padding: 20px;
-  border-right: 1px solid #ddd;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* Optional: Add a subtle shadow to make it pop */
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
 }
 
 .main-content {
   flex: 1;
-  padding: 20px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  
+  /* --- THE FIX: Make this container invisible --- */
+  background-color: transparent; 
+  border: none;
+  box-shadow: none;
+  /* ---------------------------------------------- */
+  
+  /* Keep padding to ensure panels don't touch the screen edge */
+  padding: 0; 
+  /* We remove padding here because the .dashboard already has padding: 12px */
+  /* If you want MORE space, add padding here, e.g., padding-left: 12px; */
+  
+  height: 100%;
+  overflow: hidden;
 }
 
-.control-group {
-  margin-bottom: 20px;
+.header {
+  margin-bottom: 12px; /* Reduce gap slightly */
+  margin-left: 4px;    /* Align text with the panels */
 }
 
-.control-group label {
-  display: block;
-  font-weight: bold;
-  margin-bottom: 5px;
+/* Optional: Make the header text dark gray instead of black for polish */
+.header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #1f2937;
 }
 
-input[type=range], select {
+.viz-container {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Ensure map and chart panels fill their grid slots */
+.map-panel, .chart-panel {
+  height: 100%;
   width: 100%;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #eee;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.graphs-placeholder {
-  margin-top: 20px;
-  padding: 20px;
-  background: #f0f0f0;
+.chart-panel {
+  background: white;
   border-radius: 8px;
-  text-align: center;
-  color: #666;
+  border: 1px solid #eee;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+  
+  /* --- THE FIX --- */
+  /* Increase padding (was 15px). */
+  /* This creates a white gutter between the border and the chart. */
+  padding: 32px;
 }
+
+.chart-wrapper {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+
+/* Sidebar Inputs */
+.control-group { margin-bottom: 20px; }
+.control-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+select, input[type=range] { width: 100%; }
 </style>

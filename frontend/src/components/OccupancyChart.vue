@@ -67,6 +67,16 @@ const chartData = computed(() => {
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
+
+  layout: {
+    padding: {
+      left: 0,
+      right: 80, // Prevents lines from hitting the right edge
+      top: 20,
+      bottom: 70
+    }
+  },
+
   plugins: {
     legend: { position: 'bottom' },
     tooltip: { mode: 'index', intersect: false }
@@ -91,7 +101,7 @@ const chartOptions = {
 
 <style scoped>
 .chart-container {
-  height: 400px;
+  height: 100%;
   width: 100%;
 }
 .no-data {
