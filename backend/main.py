@@ -61,15 +61,15 @@ async def lifespan(app: FastAPI):
     # 2. Load GeoJSON Geometry
     try:
         if GEOJSON_FILE.exists():
-            # --- THE FIX: Use read_file instead of json.load ---
-            # This is the standard, robust way to load GeoJSON
-            campus_gdf = gpd.read_file(str(GEOJSON_FILE))
+            # --- THE FIX: Load as Raw JSON first ---
+            # This bypasses the 'pyogrio' driver causing the crash
+            with open(GEOJSON_FILE, 'r') as f:
+                geojson_data = json.load(f)
             
-            # Ensure we are using standard Lat/Lon coordinates
-            if campus_gdf.crs is None:
-                campus_gdf.set_crs("EPSG:4326", allow_override=True)
-            elif campus_gdf.crs != "EPSG:4326":
-                campus_gdf = campus_gdf.to_crs("EPSG:4326")
+            # Create the GeoDataFrame from the dictionary
+            # We strictly assume EPSG:4326 (Lat/Lon) which is standard for web maps
+            campus_gdf = gpd.GeoDataFrame.from_features(geojson_data["features"])
+            campus_gdf.set_crs("EPSG:4326", inplace=True)
 
             # Data Cleaning (Same as before)
             if 'BLDG_CODE' in campus_gdf.columns:
@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):
             
     except Exception as e:
         print(f"   ❌ CRITICAL GEOJSON ERROR: {e}")
-        # Print more details to help debug if it fails again
+        # Print stack trace to logs just in case
         import traceback
         traceback.print_exc()
         db["campus"] = None
