@@ -4,6 +4,7 @@ import CampusMap from './components/CampusMap.vue';
 import OccupancyChart from './components/OccupancyChart.vue';
 import MapLegend from './components/MapLegend.vue';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 // State
 const dates = ref([]);
 const selectedDate = ref('');
@@ -54,7 +55,7 @@ function formatTime24(val) {
 // API Calls
 async function fetchMetadata() {
   try {
-    const res = await fetch('http://127.0.0.1:8000/metadata');
+    const res = await fetch(`${API_URL}/metadata`);
     const data = await res.json();
     dates.value = data.dates;
     if(dates.value.length > 0) selectedDate.value = dates.value[0];
@@ -72,9 +73,7 @@ async function updateDashboard() {
   
   try {
     // 1. Fetch Map Data
-    const mapRes = await fetch(
-      `http://127.0.0.1:8000/heatmap?date=${selectedDate.value}&hour=${h}&minute=${m}`
-    );
+    const mapRes = await fetch(`${API_URL}/heatmap?date=...`);
     const jsonData = await mapRes.json();
     // --- DEBUG LOG ---
     console.log("App.vue received data:", jsonData); 
@@ -82,9 +81,7 @@ async function updateDashboard() {
     heatmapData.value = jsonData;
 
     // 2. Fetch Timeline Data (Only needs to happen when Date changes, but safe to call here)
-    const chartRes = await fetch(
-      `http://127.0.0.1:8000/timeline?date=${selectedDate.value}`
-    );
+    const chartRes = await fetch(`${API_URL}/timeline?date=...`);
     timelineData.value = await chartRes.json();
 
   } catch (e) {
@@ -102,7 +99,7 @@ async function handleSearch() {
   searchSuggestions.value = [];
   
   try {
-    const res = await fetch(`http://127.0.0.1:8000/search?q=${searchQuery.value}`);
+    const res = await fetch(`${API_URL}/search?q=...`);
     if (res.status === 404) {
       alert("No building match found.");
       return;
