@@ -174,87 +174,104 @@ CODE_COL = "BLDG_CODE"
 
 def find_building_match(query: str, df: gpd.GeoDataFrame):
     """
-    Unified logic to find a building by Code OR Name.
-    Returns the best matching Row (Series) or None.
+    Returns a tuple: (MatchType, ResultData)
+    MatchType: "exact", "suggestion", or "none"
     """
     query_str = str(query).strip()
     query_lower = query_str.lower()
-
-    # --- STRATEGY 1: CHECK BY CODE ---
-    # If the input is short (e.g. "077", "77"), it's likely a code.
     
-    # 1a. Exact Code Match
-    code_match = df[df[CODE_COL].astype(str).str.lower() == query_lower]
-    if not code_match.empty:
-        return code_match.iloc[0]
-
-    # 1b. Zero-Padded Code Match (e.g. "77" -> "077")
+    # --- 1. CODE MATCHING (Digits) ---
     if query_str.isdigit():
+        # Reject codes longer than 3 digits immediately
+        if len(query_str) > 3:
+            return "none", []
+            
+        # Exact or Padded Match (e.g. "77" -> "077")
         padded_code = query_str.zfill(3)
-        padded_match = df[df[CODE_COL].astype(str) == padded_code]
-        if not padded_match.empty:
-            return padded_match.iloc[0]
+        code_match = df[df[CODE_COL].astype(str) == padded_code]
+        
+        if not code_match.empty:
+            return "exact", code_match.iloc[0]
+        
+        # If it's a 3-digit number but doesn't exist, don't try to fuzzy match names. 
+        # "999" shouldn't match "Building 9" unless you really want it to.
+        return "none", []
 
-    # --- STRATEGY 2: CHECK BY NAME ---
+    # --- 2. NAME MATCHING (Strings) ---
     
-    # 2a. Exact Name Match
-    name_match = df[df[NAME_COL].astype(str).str.lower() == query_lower]
-    if not name_match.empty:
-        return name_match.iloc[0]
+    # 2a. Exact Match
+    exact_match = df[df[NAME_COL].astype(str).str.lower() == query_lower]
+    if not exact_match.empty:
+        return "exact", exact_match.iloc[0]
 
-    # 2b. Substring Match (e.g. "Library" -> "Price Gilbert Library")
-    # We use regex=False for simple string containment
+    # 2b. Substring Match (High Confidence)
+    # e.g. "Skiles" matches "Skiles Classroom Building"
     substring_matches = df[df[NAME_COL].astype(str).str.lower().str.contains(query_lower, regex=False)]
-    
     if not substring_matches.empty:
-        # Optimization: Pick the shortest name (usually the most generic/correct one)
-        # e.g., prefer "Library" over "Library Extension Building" if possible
+        # Pick shortest name (most precise)
         best_idx = substring_matches[NAME_COL].astype(str).str.len().idxmin()
-        return substring_matches.loc[best_idx]
+        return "exact", substring_matches.loc[best_idx]
 
-    # 2c. Fuzzy Match (Jellyfish)
-    # This is your logic for handling typos like "Libary"
-    # We calculate score for ALL rows (a bit slow, but fine for <500 buildings)
-    df = df.copy() # Work on a copy to avoid warnings
+    # 2c. Fuzzy Match (The "Did you mean?" Logic)
+    df = df.copy()
     df['match_score'] = df[NAME_COL].astype(str).apply(
-        lambda x: jellyfish.damerau_levenshtein_distance(query_lower, x.lower())
+        lambda x: jellyfish.jaro_winkler_similarity(query_lower, x.lower())
     )
     
-    # Sort by score (ascending distance)
-    # A distance of 0 is exact, 1 is one typo, etc.
-    # We require a reasonably close match (e.g., distance < 5)
-    best_fuzzy = df.sort_values(by='match_score', ascending=True).iloc[0]
+    # Sort by score (Highest first)
+    sorted_matches = df.sort_values(by='match_score', ascending=False)
+    best_match = sorted_matches.iloc[0]
+    best_score = best_match['match_score']
     
-    # Threshold: If the "best" match is still very different, ignore it.
-    # (Length difference serves as a rough heuristic)
-    if best_fuzzy['match_score'] < 5: 
-        return best_fuzzy
-
-    return None
+    # THRESHOLDS:
+    # > 0.90: Almost perfect match (Small typo: "Skilles" -> "Skiles") -> Auto Zoom
+    # 0.60 - 0.90: Ambiguous or "Gibberish-ish" -> Return Suggestions
+    # < 0.60: Total gibberish -> No Match
+    
+    if best_score >= 0.90:
+        return "exact", best_match
+    
+    if best_score >= 0.60:
+        # Return Top 3 for "Did you mean?"
+        top_3 = sorted_matches.head(3)
+        return "suggestion", top_3
+        
+    return "none", []
 
 @app.get("/search")
 def search_building(q: str):
-    """
-    Smart Search: Accepts Name OR Code, returns coordinates for Map Zoom.
-    """
     if db["campus"] is None:
         raise HTTPException(status_code=500, detail="Data not loaded")
     
     campus = db["campus"]
+    match_type, result = find_building_match(q, campus)
     
-    # Use our unified logic
-    match = find_building_match(q, campus)
-    
-    if match is None:
-        raise HTTPException(status_code=404, detail="Building not found")
-    
-    # Calculate Centroid for the Map Zoom
-    centroid = match.geometry.centroid
-    
-    return {
-        "name": match[NAME_COL],
-        "code": match[CODE_COL],
-        "lat": centroid.y,
-        "lon": centroid.x,
-        "category": match.get('building_category', 'Unknown')
-    }
+    if match_type == "exact":
+        # Auto-Zoom
+        centroid = result.geometry.centroid
+        return {
+            "type": "exact",
+            "data": {
+                "name": result[NAME_COL],
+                "code": result[CODE_COL],
+                "lat": centroid.y,
+                "lon": centroid.x
+            }
+        }
+        
+    elif match_type == "suggestion":
+        # Return list of options
+        suggestions = []
+        for _, row in result.iterrows():
+            suggestions.append({
+                "name": row[NAME_COL],
+                "code": row[CODE_COL]
+            })
+        return {
+            "type": "suggestions",
+            "message": f"No exact match for '{q}'. Did you mean:",
+            "data": suggestions
+        }
+        
+    else:
+        raise HTTPException(status_code=404, detail="No building match found.")
