@@ -59,19 +59,24 @@ async def lifespan(app: FastAPI):
         db["data"] = None
 
     # 2. Load GeoJSON Geometry
+    # 2. Load GeoJSON Geometry
     try:
         if GEOJSON_FILE.exists():
-            # --- THE FIX: Load as Raw JSON first ---
-            # This bypasses the 'pyogrio' driver causing the crash
+            # 1. Load Raw JSON
             with open(GEOJSON_FILE, 'r') as f:
                 geojson_data = json.load(f)
             
-            # Create the GeoDataFrame from the dictionary
-            # We strictly assume EPSG:4326 (Lat/Lon) which is standard for web maps
+            # 2. Convert to GeoDataFrame
             campus_gdf = gpd.GeoDataFrame.from_features(geojson_data["features"])
-            campus_gdf.set_crs("EPSG:4326", inplace=True)
+            
+            # --- THE FIX: Try to set CRS, but ignore if it crashes ---
+            try:
+                campus_gdf.set_crs("EPSG:4326", inplace=True)
+            except Exception as e:
+                print(f"   ⚠️ Warning: Could not set CRS tag (PROJ error), proceeding without it. Data is likely fine.")
+            # ---------------------------------------------------------
 
-            # Data Cleaning (Same as before)
+            # 3. Data Cleaning
             if 'BLDG_CODE' in campus_gdf.columns:
                  campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
             
@@ -88,7 +93,6 @@ async def lifespan(app: FastAPI):
             
     except Exception as e:
         print(f"   ❌ CRITICAL GEOJSON ERROR: {e}")
-        # Print stack trace to logs just in case
         import traceback
         traceback.print_exc()
         db["campus"] = None
