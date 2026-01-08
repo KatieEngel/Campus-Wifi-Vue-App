@@ -8,6 +8,9 @@ import jellyfish
 from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel
+from fastapi.exceptions import RequestValidationError
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse
 
 # --- CONFIGURATION ---
 BASE_DIR = Path(__file__).resolve().parent
@@ -103,6 +106,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # This prints the exact error to the Render logs
+    print(f"❌ VALIDATION ERROR at {request.url}: {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": str(exc)},
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], # Allow Vue to connect
@@ -124,35 +136,43 @@ def get_metadata():
     }
 
 @app.get("/heatmap")
-def get_heatmap(date: str, hour: int, minute: int):
+def get_heatmap(date: str, hour: str, minute: str):
     """
-    Returns GeoJSON with occupancy data for a specific time slot.
+    Returns GeoJSON with occupancy data for a specific time.
+    Accepts hour/minute as strings to be safe, then converts to int.
     """
+    try:
+        # 1. Manually convert to int to be safe
+        h = int(float(hour)) # Handles "12.0" or "12"
+        m = int(float(minute))
+        
+        print(f"   📍 Heatmap Request: Date={date}, H={h}, M={m}")
+    except ValueError:
+        print(f"   ❌ Invalid Time Format: H={hour}, M={minute}")
+        raise HTTPException(status_code=400, detail="Invalid hour/minute format")
+
+    if db["data"] is None or db["campus"] is None:
+        raise HTTPException(status_code=500, detail="Data not loaded")
+    
     df = db["data"]
     campus = db["campus"]
     
-    if df is None or campus is None:
-        raise HTTPException(status_code=500, detail="Data not loaded")
-
-    # 1. Filter Data
-    filtered = df[
+    # 2. Filter Data
+    mask = (
         (df['date_str'] == date) & 
-        (df['hour'] == hour) & 
-        (df['minute'] == minute)
-    ]
-    
-    # 2. Merge with Geometry
-    # We do a LEFT join on the Campus map, so buildings with 0 occupancy still show up
-    merged = campus.merge(
-        filtered[['BLDG_CODE', 'occupancy']], 
-        on='BLDG_CODE', 
-        how='left'
+        (df['hour'] == h) & 
+        (df['minute'] == m)
     )
+    subset = df[mask]
     
-    # Fill NaN with 0
-    merged['occupancy'] = merged['occupancy'].fillna(0).astype(int)
+    # 3. Merge with Geometry
+    # We use a LEFT join so we keep all buildings (even if occupancy is 0)
+    merged = campus.merge(subset, on=CODE_COL, how='left')
     
-    # Convert to JSON string then dict
+    # 4. Fill Missing Values (Empty buildings = 0 occupancy)
+    merged['occupancy'] = merged['device_count'].fillna(0).astype(int)
+    
+    # 5. Return as GeoJSON
     return json.loads(merged.to_json())
 
 @app.get("/timeline")
