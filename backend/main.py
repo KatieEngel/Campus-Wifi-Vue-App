@@ -34,47 +34,60 @@ def classify_building_type(bldg_type):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("🚀 Loading Data... this might take a moment.")
+    print("🚀 Loading Data...")
     
     # 1. Load Parquet Data
-    if PARQUET_FILE.exists():
-        df = pd.read_parquet(PARQUET_FILE)
-
-        df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
-
-        # Process dates
-        df['time_bin'] = pd.to_datetime(df['time_bin'])
-        df['date_str'] = df['time_bin'].dt.strftime('%Y-%m-%d') # String for easy filtering
-        df['hour'] = df['time_bin'].dt.hour
-        df['minute'] = df['time_bin'].dt.minute
-        
-        # Remove incomplete day logic (from your streamlit code)
-        df = df[df['date_str'] != "2025-04-13"]
-        db["data"] = df
-        db["dates"] = sorted(df['date_str'].unique().tolist())
-        print(f"Loaded {len(df)} occupancy records.")
-    else:
-        print(f"❌ Error: Parquet file not found at {PARQUET_FILE}")
+    try:
+        if PARQUET_FILE.exists():
+            df = pd.read_parquet(PARQUET_FILE)
+            # ... (Existing cleaning logic) ...
+            df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
+            df['time_bin'] = pd.to_datetime(df['time_bin'])
+            df['date_str'] = df['time_bin'].dt.strftime('%Y-%m-%d')
+            df['hour'] = df['time_bin'].dt.hour
+            df['minute'] = df['time_bin'].dt.minute
+            df = df[df['date_str'] != "2025-04-13"]
+            
+            db["data"] = df
+            db["dates"] = sorted(df['date_str'].unique().tolist())
+            print(f"   ✅ Loaded {len(df)} occupancy records.")
+        else:
+            print(f"   ❌ Error: Parquet file not found at {PARQUET_FILE}")
+            db["data"] = None
+    except Exception as e:
+        print(f"   ❌ CRITICAL PARQUET ERROR: {e}")
+        db["data"] = None
 
     # 2. Load GeoJSON Geometry
-    if GEOJSON_FILE.exists():
-        with open(GEOJSON_FILE, 'r') as f:
-            raw_geo = json.load(f)
-        campus_gdf = gpd.GeoDataFrame.from_features(raw_geo['features'], crs="EPSG:4326")
-
-        if 'BLDG_CODE' in campus_gdf.columns:
-             campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
-        
-        # Apply Classification
-        if 'BLDG_TYPE' in campus_gdf.columns:
-            campus_gdf['building_category'] = campus_gdf['BLDG_TYPE'].apply(classify_building_type)
-        else:
-            campus_gdf['building_category'] = "Unknown"
+    try:
+        if GEOJSON_FILE.exists():
+            with open(GEOJSON_FILE, 'r') as f:
+                raw_geo = json.load(f)
             
-        db["campus"] = campus_gdf
-        print(f"   Loaded {len(campus_gdf)} building geometries.")
-    else:
-        print(f"❌ Error: GeoJSON file not found at {GEOJSON_FILE}")
+            # SAFETY CHECK: Ensure we actually have features
+            if not raw_geo.get('features'):
+                print("   ❌ Error: GeoJSON file is empty or has no features.")
+                db["campus"] = None
+            else:
+                campus_gdf = gpd.GeoDataFrame.from_features(raw_geo['features'], crs="EPSG:4326")
+                
+                if 'BLDG_CODE' in campus_gdf.columns:
+                     campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
+                
+                if 'BLDG_TYPE' in campus_gdf.columns:
+                    campus_gdf['building_category'] = campus_gdf['BLDG_TYPE'].apply(classify_building_type)
+                else:
+                    campus_gdf['building_category'] = "Unknown"
+                    
+                db["campus"] = campus_gdf
+                print(f"   ✅ Loaded {len(campus_gdf)} building geometries.")
+        else:
+            print(f"   ❌ Error: GeoJSON file not found at {GEOJSON_FILE}")
+            db["campus"] = None
+            
+    except Exception as e:
+        print(f"   ❌ CRITICAL GEOJSON ERROR: {e}")
+        db["campus"] = None
         
     yield
     db["data"] = None
