@@ -75,7 +75,7 @@ async function updateDashboard() {
     // 1. Fetch Map Data
     const mapRes = await fetch(
       `${API_URL}/heatmap?date=${selectedDate.value}&hour=${h}&minute=${m}`
-    )
+    );
     const jsonData = await mapRes.json();
     // --- DEBUG LOG ---
     console.log("App.vue received data:", jsonData); 
