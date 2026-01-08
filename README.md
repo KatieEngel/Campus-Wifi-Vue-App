@@ -5,7 +5,7 @@
 ![Lab](https://img.shields.io/badge/Lab-ASDL_Smart_Campus-003057.svg)
 
 ## 📖 Project Overview
-The **GT Campus Wi-Fi Occupancy Visualization** is a spatial analytics research tool developed within the **Aerospace Systems Design Laboratory (ASDL)**. Its primary objective is to model and visualize real-time human occupancy patterns across the Georgia Tech campus to support the **EnergyShed** distributed energy optimization project.
+The **GT Campus Wi-Fi Occupancy Visualization** is a spatial analytics research tool developed within the **Aerospace Systems Design Laboratory (ASDL)**. Its primary objective is to model and visualize real-time human occupancy patterns across the Georgia Tech campus.
 
 By processing aggregated Wi-Fi network connection logs (1.3M+ records), this tool provides a proxy for human density in 146 campus facilities. This data enables infrastructure managers to identify underutilized spaces, correlate occupancy with energy consumption, and predict peak traffic loads.
 
@@ -110,6 +110,7 @@ The application will launch in your browser at http://localhost:5173.
 ## 🧠 API Documentation (Search Logic)
 The core engineering innovation in v2 is the Search Logic located in backend/main.py. It resolves facility lookups through a step-by-step process.
 
+* **0. Colloquialisms:** Checks if input is a known alias (e.g., "culc" = "Clough Building")
 * **1. Exact Code Match:** Checks if input is a known 3-digit Facility ID (e.g., "077").
 * **2. Substring Search:** Checks if input is a strict substring of a building name.
 * **3. Fuzzy String Matching:** Calculates similarity scores for all 146 buildings.
@@ -119,8 +120,8 @@ The core engineering innovation in v2 is the Search Logic located in backend/mai
 
 ---
 
-## 👥 Contributors & Contact
+## 👥 Contributors
 * **Katie Engel** - Architecture, API, Vue.js Migration
-* **Yameen Ahmed** - Data Modeling & ETL Pipelines
+* **Yameen Ahmed** - Data Modeling & Analysis
 
 **Lab:** Aerospace Systems Design Laboratory (ASDL), Georgia Institute of Technology.
