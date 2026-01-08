@@ -16,6 +16,7 @@ npm-debug.log*
 .env
 
 # --- Large Files (>100MB) ---
-*.parquet
+data/hourly_occupancy_summary.parquet
+data/wifi_data_2days.parquet
 *.csv
 *.xlsx
