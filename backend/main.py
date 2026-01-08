@@ -61,32 +61,36 @@ async def lifespan(app: FastAPI):
     # 2. Load GeoJSON Geometry
     try:
         if GEOJSON_FILE.exists():
-            with open(GEOJSON_FILE, 'r') as f:
-                raw_geo = json.load(f)
+            # --- THE FIX: Use read_file instead of json.load ---
+            # This is the standard, robust way to load GeoJSON
+            campus_gdf = gpd.read_file(GEOJSON_FILE)
             
-            # SAFETY CHECK: Ensure we actually have features
-            if not raw_geo.get('features'):
-                print("   ❌ Error: GeoJSON file is empty or has no features.")
-                db["campus"] = None
+            # Ensure we are using standard Lat/Lon coordinates
+            if campus_gdf.crs is None:
+                campus_gdf.set_crs("EPSG:4326", allow_override=True)
+            elif campus_gdf.crs != "EPSG:4326":
+                campus_gdf = campus_gdf.to_crs("EPSG:4326")
+
+            # Data Cleaning (Same as before)
+            if 'BLDG_CODE' in campus_gdf.columns:
+                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
+            
+            if 'BLDG_TYPE' in campus_gdf.columns:
+                campus_gdf['building_category'] = campus_gdf['BLDG_TYPE'].apply(classify_building_type)
             else:
-                campus_gdf = gpd.GeoDataFrame.from_features(raw_geo['features'], crs="EPSG:4326")
+                campus_gdf['building_category'] = "Unknown"
                 
-                if 'BLDG_CODE' in campus_gdf.columns:
-                     campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
-                
-                if 'BLDG_TYPE' in campus_gdf.columns:
-                    campus_gdf['building_category'] = campus_gdf['BLDG_TYPE'].apply(classify_building_type)
-                else:
-                    campus_gdf['building_category'] = "Unknown"
-                    
-                db["campus"] = campus_gdf
-                print(f"   ✅ Loaded {len(campus_gdf)} building geometries.")
+            db["campus"] = campus_gdf
+            print(f"   ✅ Loaded {len(campus_gdf)} building geometries.")
         else:
             print(f"   ❌ Error: GeoJSON file not found at {GEOJSON_FILE}")
             db["campus"] = None
             
     except Exception as e:
         print(f"   ❌ CRITICAL GEOJSON ERROR: {e}")
+        # Print more details to help debug if it fails again
+        import traceback
+        traceback.print_exc()
         db["campus"] = None
         
     yield
