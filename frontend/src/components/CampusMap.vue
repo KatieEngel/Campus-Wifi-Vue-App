@@ -15,6 +15,8 @@ L.Icon.Default.mergeOptions({
   shadowUrl,
 });
 
+const emit = defineEmits(['update-max']);
+
 const props = defineProps({
   geoJsonData: Object,
   renderKey: String,
@@ -33,18 +35,32 @@ let layerLookup = {};
 const RES_COLORS = ['#FFEDF0', '#FFC9D4', '#FF9FAD', '#FF6384', '#DC143C', '#8B0000'];
 const NON_RES_COLORS = ['#F1F7FF', '#D6E6FF', '#B0D0FF', '#7FB5FF', '#4292C6', '#08519C'];
 
+// Variables to store current max for the legend/scaling
+let maxRes = 100;
+let maxNonRes = 100;
+
 function getColor(occupancy, category) {
   const cat = (category || 'Unknown').trim(); 
   const occ = occupancy || 0;
-
-  // Determine Intensity Index (0 to 5)
-  let index = 0;
-  if (occ > 50) index = 5;       
-  else if (occ > 30) index = 4;
-  else if (occ > 15) index = 3;
-  else if (occ > 5) index = 2;
-  else if (occ > 0) index = 1;   
   
+  // Determine which max value to use for scaling
+  const maxVal = (cat === 'Residential') ? maxRes : maxNonRes;
+  
+  // Create 5 buckets based on the max value (Dynamic Scaling)
+  // Step 0: 0
+  // Step 1: 0 to 20% of max
+  // Step 2: 20% to 40% ... etc
+  let index = 0;
+  if (occ === 0) index = 0; // Distinct color for empty
+  else {
+    const ratio = occ / maxVal;
+    if (ratio > 0.8) index = 5;
+    else if (ratio > 0.6) index = 4;
+    else if (ratio > 0.4) index = 3;
+    else if (ratio > 0.2) index = 2;
+    else index = 1;
+  }
+
   if (cat === 'Residential') return RES_COLORS[index];
   if (cat === 'Non-Residential') return NON_RES_COLORS[index];
   return '#737373'; 
@@ -52,7 +68,6 @@ function getColor(occupancy, category) {
 
 function updateLayer() {
   if (!map.value || !map.value.leafletObject || !props.geoJsonData) return;
-
   const leafletMap = map.value.leafletObject;
 
   // Remove Old Layer
@@ -62,6 +77,24 @@ function updateLayer() {
   
   // Reset the lookup table for the new layer
   layerLookup = {}; 
+
+  // --- ALCULATE MAX VALUES FOR THIS TIMESTAMP ---
+  // We reset them to a minimum of 10 to avoid divide-by-zero on empty days
+  maxRes = 10;
+  maxNonRes = 10;
+
+  props.geoJsonData.features.forEach(f => {
+    const occ = f.properties.occupancy || 0;
+    const cat = (f.properties.building_category || 'Unknown').trim();
+    
+    if (cat === 'Residential') {
+      if (occ > maxRes) maxRes = occ;
+    } else if (cat === 'Non-Residential') {
+      if (occ > maxNonRes) maxNonRes = occ;
+    }
+  });
+  
+  emit('update-max', { res: maxRes, nonRes: maxNonRes });
 
   // Create New Layer MANUALLY
   geoJsonLayer = L.geoJSON(props.geoJsonData, {

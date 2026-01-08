@@ -14,6 +14,17 @@ const loading = ref(false);
 const searchQuery = ref("");
 const mapTarget = ref(null);
 
+const searchSuggestions = ref([]); // Store the list of "Did you mean?"
+const showSuggestions = ref(false); // Toggle the UI
+
+const currentMaxRes = ref(100);
+const currentMaxNonRes = ref(100);
+
+function handleMaxUpdate(payload) {
+  currentMaxRes.value = payload.res;
+  currentMaxNonRes.value = payload.nonRes;
+}
+
 // Helper to convert slider (0-1440) to Hour/Minute
 function minsToTime(val) {
   const h = Math.floor(val / 60);
@@ -85,30 +96,45 @@ async function updateDashboard() {
 
 async function handleSearch() {
   if (!searchQuery.value) return;
+
+  // Reset previous states
+  showSuggestions.value = false;
+  searchSuggestions.value = [];
   
   try {
     const res = await fetch(`http://127.0.0.1:8000/search?q=${searchQuery.value}`);
-    if (!res.ok) {
-      alert("Building not found!");
+    if (res.status === 404) {
+      alert("No building match found.");
       return;
     }
     
-    const data = await res.json();
-    console.log("Found:", data);
-    
-    // Trigger the map movement
-    mapTarget.value = { 
-      lat: data.lat, 
-      lon: data.lon, 
-      name: data.name 
-    };
-    
-    // Clear box (optional)
-    searchQuery.value = "";
-    
+    const response = await res.json();
+
+    if (response.type === "exact") {
+      // 1. High Confidence: Zoom immediately
+      console.log("Zooming to:", response.data.name);
+      mapTarget.value = { 
+        lat: response.data.lat, 
+        lon: response.data.lon, 
+        name: response.data.name 
+      };
+      searchQuery.value = ""; // Clear box
+    } 
+    else if (response.type === "suggestions") {
+      // 2. Low Confidence: Show the "Did you mean?" list
+      searchSuggestions.value = response.data;
+      showSuggestions.value = true;
+    }
+
   } catch (e) {
     console.error(e);
   }
+}
+
+// NEW: Function when user clicks a suggestion
+function acceptSuggestion(buildingName) {
+  searchQuery.value = buildingName; // Fill box with correct name
+  handleSearch(); // Auto-search again (will hit "exact" this time)
 }
 
 // Create a unique key that changes whenever Date OR Time changes
@@ -128,17 +154,30 @@ onMounted(() => {
 <template>
   <div class="dashboard">
     <div class="sidebar">
-      <h2>Controls</h2>
+      <h2>Options</h2>
 
       <div class="control-group search-group">
         <label>Find Building</label>
-         <div class="search-row">
+        <div class="search-row">
           <input 
-          v-model="searchQuery" 
-          @keyup.enter="handleSearch"
-          placeholder="e.g. Library" 
+            v-model="searchQuery" 
+            @keyup.enter="handleSearch"
+            placeholder="e.g. Library" 
           />
           <button @click="handleSearch">Go</button>
+        </div>
+
+        <div v-if="showSuggestions" class="suggestions-box">
+          <p>Did you mean?</p>
+          <ul>
+            <li 
+              v-for="s in searchSuggestions" 
+              :key="s.code" 
+              @click="acceptSuggestion(s.name)"
+            >
+              {{ s.name }}
+            </li>
+          </ul>
         </div>
       </div>
       <hr class="divider" />
@@ -175,10 +214,14 @@ onMounted(() => {
               :geoJsonData="heatmapData" 
               :renderKey="mapRenderKey"
               :flyTo="mapTarget"
+              @update-max="handleMaxUpdate"
             />
           </div>
           
-          <MapLegend /> 
+          <MapLegend 
+            :maxRes="currentMaxRes" 
+            :maxNonRes="currentMaxNonRes" 
+          />
         </div>
         
         <div class="chart-panel">
@@ -350,6 +393,44 @@ body {
   border: 0;
   border-top: 1px solid #ddd;
   margin: 20px 0;
+}
+
+.suggestions-box {
+  margin-top: 10px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.suggestions-box p {
+  margin: 0 0 5px 0;
+  font-size: 12px;
+  color: #666;
+  font-weight: bold;
+}
+
+.suggestions-box ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.suggestions-box li {
+  padding: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+  color: #2563eb; /* Link blue */
+}
+
+.suggestions-box li:hover {
+  background-color: #f0f9ff;
+}
+
+.suggestions-box li:last-child {
+  border-bottom: none;
 }
 
 /* Sidebar Inputs */
