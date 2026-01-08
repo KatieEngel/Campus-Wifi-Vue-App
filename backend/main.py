@@ -169,7 +169,23 @@ def get_timeline(date: str):
 
 # configuring column names
 NAME_COL = "BLDG_NAME" 
-CODE_COL = "BLDG_CODE" 
+CODE_COL = "BLDG_CODE"
+
+# --- NEW: Custom Colloquialisms Dictionary ---
+# Keys must be lowercase for case-insensitive matching
+CUSTOM_ALIASES = {
+    "culc": "Clough Building",
+    "clough": "Clough Building",
+    "crc": "Campus Recreation Center",
+    "mrdc": "Manufacturing Related Disciplines Complex",
+    "coc": "College of Computing",
+    "klaus": "Klaus Advanced Computing Building",
+    "scheller": "Management Building",
+    "student center": "John Lewis Student Center",
+    "library": "Gilbert Memorial Library",
+    "price": "Gilbert Memorial Library",
+    "pg": "Gilbert Memorial Library"
+}
 
 
 def find_building_match(query: str, df: gpd.GeoDataFrame):
@@ -179,6 +195,18 @@ def find_building_match(query: str, df: gpd.GeoDataFrame):
     """
     query_str = str(query).strip()
     query_lower = query_str.lower()
+
+    # --- 0: MANUAL OVERRIDES (The "Colloquialism" Fix) ---
+    # Check if the user typed a known abbreviation like "CULC"
+    if query_lower in CUSTOM_ALIASES:
+        target_name = CUSTOM_ALIASES[query_lower]
+        # Find the row that matches this target name exactly
+        # We use .str.contains in case the official name in DB is slightly longer
+        alias_match = df[df[NAME_COL].astype(str).str.contains(target_name, case=False, regex=False)]
+        
+        if not alias_match.empty:
+            # Return the first match found
+            return "exact", alias_match.iloc[0]
     
     # --- 1. CODE MATCHING (Digits) ---
     if query_str.isdigit():
