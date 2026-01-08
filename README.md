@@ -64,21 +64,20 @@ gt-wifi-occupancy/
 * **Node.js 18+** (Required for Vue.js frontend)
 
 ### 1. Data Configuration
-Ensure the following files are present in the data/ directory before starting:
+Ensure the following files are present in the `data/` directory before starting:
+* `ten_min_occupancy_summary.parquet:` The processed occupancy dataset.
 
-* **ten_min_occupancy_summary.parquet:** The processed occupancy dataset.
-
-* **campus_buildings_categories.geojson:** The spatial boundaries for GT facilities.
+* `campus_buildings_categories.geojson:` The spatial boundaries for GT facilities.
 
 ### 2. Backend Setup (API)
 Open a terminal and navigate to the backend directory:
 
-bash
-
+```bash
 cd backend
 
 # Create and activate virtual environment
 python -m venv venv
+
 # Windows:
 .\venv\Scripts\activate
 # Mac/Linux:
@@ -89,13 +88,13 @@ pip install -r requirements.txt
 
 # Start the development server
 fastapi dev main.py
+```
 The API will start at http://127.0.0.1:8000 (Documentation available at /docs).
 
 ### 3. Frontend Setup (Client)
 Open a new terminal window and navigate to the frontend directory:
 
-bash
-
+```bash
 cd frontend
 
 # Install Node dependencies
@@ -103,7 +102,7 @@ npm install
 
 # Start the development client
 npm run dev
-
+```
 The application will launch in your browser at http://localhost:5173.
 
 ---
