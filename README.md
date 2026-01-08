@@ -121,7 +121,7 @@ The core engineering innovation in v2 is the Search Logic located in backend/mai
 ---
 
 ## 👥 Contributors
-* **Katie Engel** - Architecture, API, Vue.js Migration
+* **Katie Engel** - Architecture, API, Vue.js Migration, Data Modeling & Analysis
 * **Yameen Ahmed** - Data Modeling & Analysis
 
 **Lab:** Aerospace Systems Design Laboratory (ASDL), Georgia Institute of Technology.
