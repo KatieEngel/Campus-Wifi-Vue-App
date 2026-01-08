@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
         if GEOJSON_FILE.exists():
             # --- THE FIX: Use read_file instead of json.load ---
             # This is the standard, robust way to load GeoJSON
-            campus_gdf = gpd.read_file(GEOJSON_FILE)
+            campus_gdf = gpd.read_file(str(GEOJSON_FILE))
             
             # Ensure we are using standard Lat/Lon coordinates
             if campus_gdf.crs is None:
