@@ -1,98 +1,127 @@
-# Campus Occupancy Heatmap - First Day Analysis
+# GT Campus Wi-Fi Occupancy Visualization Platform
 
-A Streamlit application for visualizing campus occupancy patterns with scroll-over time functionality and color-coded residential vs non-residential buildings. Yameen Ahmed handled the Day 1 data processing and visualization, while Kathleen handled the same for Day 2.
+![Status](https://img.shields.io/badge/Status-Proof_of_Concept-yellow.svg)
+![Version](https://img.shields.io/badge/Version-2.0_Vue_Migration-blue.svg)
+![Lab](https://img.shields.io/badge/Lab-ASDL_Smart_Campus-003057.svg)
 
-## Features
+## 📖 Project Overview
+The **GT Campus Wi-Fi Occupancy Visualization** is a spatial analytics research tool developed within the **Aerospace Systems Design Laboratory (ASDL)**. Its primary objective is to model and visualize real-time human occupancy patterns across the Georgia Tech campus to support the **EnergyShed** distributed energy optimization project.
 
-- **First Day Heatmap**: Interactive visualization of campus occupancy for the first day only
-- **Scroll-Over Time**: Dynamic time slider to explore occupancy patterns throughout the day
-- **Color Coding**: Distinct colors for residential (red) and non-residential (teal) buildings
-- **Building Shape Visualization**: Actual building outlines highlighted based on occupancy
+By processing aggregated Wi-Fi network connection logs (1.3M+ records), this tool provides a proxy for human density in 146 campus facilities. This data enables infrastructure managers to identify underutilized spaces, correlate occupancy with energy consumption, and predict peak traffic loads.
 
+### 🏗️ Architectural Evolution
+This repository documents the evolution of the tool from a rapid prototype to a scalable web application:
+* **v1 (Streamlit Prototype):** Initially built as a monolithic Python script for data validation and quick visual prototyping. While effective for small datasets, it faced performance bottlenecks during interactive re-rendering of large spatial datasets.
+* **v2 (Current Architecture):** A complete re-architecture using a decoupled **Client-Server model**. This migration was undertaken to improve rendering performance, enable asynchronous data querying, and provide a extensible foundation for future API integrations.
 
+---
 
-## Installation
+## 🚀 Key Features
 
-1. Install required dependencies:
-```bash
+### 1. Spatiotemporal Analytics
+* **Dynamic Heatmaps:** Visualizes occupancy density using dynamic choropleth scaling relative to building capacity (Residential vs. Non-Residential categorization).
+* **Timeline Analysis:** Interactive time-series charts allow users to drill down into specific dates and 10-minute time intervals to observe daily traffic flow.
+
+### 2. High-Performance Microservice Backend
+* **FastAPI & GeoPandas:** The backend loads 50MB+ of Parquet and GeoJSON data into memory at startup, serving spatial queries in <15ms.
+* **"Smart Search" Algorithm:** A custom fuzzy-matching engine (utilizing Jaro-Winkler distance) resolves user typos and colloquialisms (e.g., mapping *"Culc"* to *"Clough Undergraduate Learning Commons"*), prioritizing exact facility codes first.
+
+### 3. Reactive Frontend
+* **Vue.js & Leaflet:** The client-side application manages map state independently of the server, eliminating full-page reloads and allowing for smooth "Fly-To" animations and instant feedback.
+
+---
+
+## 🛠️ System Architecture
+
+The project follows a **Monorepo** structure separating the API and Client logic to support future deployment containers.
+
+```text
+gt-wifi-occupancy/
+├── backend/               # FastAPI Microservice (Python)
+│   ├── main.py            # API Endpoints, Data Loading, & Search Logic
+│   ├── requirements.txt   # Python Dependencies
+│   └── venv/              # Local Python Environment
+│
+├── frontend/              # Vue.js Client (Node.js/Vite)
+│   ├── src/
+│   │   ├── components/    # Reusable UI Components (CampusMap, OccupancyChart, MapLegend)
+│   │   └── App.vue        # Main Layout & State Orchestration
+│   └── package.json       # Frontend Dependencies
+│
+├── data/                  # Read-Only Data Store
+│   ├── ten_min_occupancy_summary.parquet  # Aggregated Time-series data
+│   └── campus_buildings_categories.geojson # Campus Geometry & Metadata
+│
+└── prototype_v1/          # Archived Streamlit Prototype (Reference)
+```
+
+---
+
+## 💻 Setup & Installation
+
+### Prerequisites
+* **Python 3.9+**
+* **Node.js 18+** (Required for Vue.js frontend)
+
+### 1. Data Configuration
+Ensure the following files are present in the data/ directory before starting:
+
+* **ten_min_occupancy_summary.parquet:** The processed occupancy dataset.
+
+* **campus_buildings_categories.geojson:** The spatial boundaries for GT facilities.
+
+### 2. Backend Setup (API)
+Open a terminal and navigate to the backend directory:
+
+bash
+
+cd backend
+
+# Create and activate virtual environment
+python -m venv venv
+# Windows:
+.\venv\Scripts\activate
+# Mac/Linux:
+source venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
-```
 
-2. Ensure you have the data files in the correct location:
-   - `notebooks/data/wifi_data_2days.parquet`
-   - `notebooks/data/campus_buildings_categories.geojson`
+# Start the development server
+fastapi dev main.py
+The API will start at http://127.0.0.1:8000 (Documentation available at /docs).
 
-## Usage
+### 3. Frontend Setup (Client)
+Open a new terminal window and navigate to the frontend directory:
 
-### Run the Application
-```bash
-streamlit run heatmap_app.py
-```
+bash
 
-### Alternative: Use the launcher script
-```bash
-python run_app.py
-```
+cd frontend
 
-### Manual launch
-```bash
-python -m streamlit run heatmap_app.py --server.port 8501
-```
+# Install Node dependencies
+npm install
 
-**Note:** The application works exclusively with real WiFi data. No sample or fabricated data is used.
+# Start the development client
+npm run dev
 
-## Performance Notes
+The application will launch in your browser at http://localhost:5173.
 
-**Why is loading slow?**
-- The original dataset has 1.3M+ rows
-- Complex merge operations with building data
-- String operations on large datasets
-- Memory-intensive processing
+---
 
-**Optimizations implemented:**
-- **Smart sampling**: Reduces 1.3M rows to ~50K for performance
-- **Vectorized operations**: Faster than loops and apply functions
-- **Dictionary mapping**: Faster than complex merges
-- **Progress indicators**: Shows loading status
-- **Caching**: Streamlit caches processed data
-- **Real data only**: No fabricated or sample data used
+## 🧠 API Documentation (Search Logic)
+The core engineering innovation in v2 is the Search Logic located in backend/main.py. It resolves facility lookups through a step-by-step process.
 
-## Application Features
+* **1. Exact Code Match:** Checks if input is a known 3-digit Facility ID (e.g., "077").
+* **2. Substring Search:** Checks if input is a strict substring of a building name.
+* **3. Fuzzy String Matching:** Calculates similarity scores for all 146 buildings.
+   * **Score > 0.9:** High confidence; API returns an exact match type and coordinates for auto-zoom.
+   * **Score > 0.6:** Low confidence; API returns a suggestion list for the frontend "Did you mean?" dropdown.
+   * **Score < 0.6:** Query rejected as invalid.
 
-### Main Interface
-- **Date Selection**: Choose the first day of occupancy data to focus on
-- **Hour Slider**: Scroll over time to see occupancy changes throughout the day
-- **Building Category Filter**: Toggle between residential and non-residential buildings
-- **Interactive Heatmap**: Bar chart showing occupancy by building with color coding
+---
 
-### Timeline Analysis
-- **Hourly Patterns**: Line chart showing occupancy trends throughout the day
-- **Category Breakdown**: Separate lines for residential vs non-residential buildings
-- **Selected Hour Indicator**: Red dashed line showing current time selection
+## 👥 Contributors & Contact
+* **Katie Engel** - Architecture, API, Vue.js Migration
+* **Yameen Ahmed** - Data Modeling & ETL Pipelines
 
-### Summary Statistics
-- **Total Occupancy**: Current hour's total occupancy count
-- **Category Metrics**: Breakdown by building category
-- **Trend Analysis**: Comparison with previous hour
-- **Raw Data Table**: Detailed occupancy data for selected time
-
-## Color Scheme
-
-- **Red**: Residential buildings (dormitories, Greek housing, residence halls)
-- **Teal**: Non-residential buildings (academic, library, student center, gym)
-- **Gray**: Unknown building types
-
-## Technical Details
-
-- **Framework**: Streamlit for web interface
-- **Visualization**: Plotly for interactive charts
-- **Data Processing**: Pandas and GeoPandas
-- **Caching**: Streamlit caching for performance
-- **Responsive Design**: Wide layout optimized for heatmap visualization
-
-## Troubleshooting
-
-If you encounter issues:
-1. Ensure all dependencies are installed: `pip install -r requirements.txt`
-2. Check that data files are in the correct location
-3. Verify file permissions for data access
+**Lab:** Aerospace Systems Design Laboratory (ASDL), Georgia Institute of Technology.
