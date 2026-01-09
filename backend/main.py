@@ -171,6 +171,12 @@ def get_heatmap(date: str, hour: str, minute: str):
     # 2. Merge with Geometry
     # We use LEFT join to keep all buildings, even if they have 0 people
     merged = campus.merge(subset, on=CODE_COL, how='left')
+
+    # --- Re-assert that this is a GeoDataFrame ---
+    # Pandas merge sometimes strips the "Geo" status. We put it back.
+    if 'geometry' in merged.columns:
+        merged = gpd.GeoDataFrame(merged, geometry='geometry')
+    # -----------------------------------------------------
     
     # 3. Fill Missing Values
     # --- THE FIX: Use 'occupancy' instead of 'device_count' ---
