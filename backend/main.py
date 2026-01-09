@@ -43,6 +43,9 @@ async def lifespan(app: FastAPI):
     try:
         if PARQUET_FILE.exists():
             df = pd.read_parquet(PARQUET_FILE)
+
+            print(f"DEBUG: Parquet Columns: {df.columns.tolist()}") 
+
             # ... (Existing cleaning logic) ...
             df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
             df['time_bin'] = pd.to_datetime(df['time_bin'])
@@ -157,22 +160,33 @@ def get_heatmap(date: str, hour: str, minute: str):
     df = db["data"]
     campus = db["campus"]
     
-    # 2. Filter Data
+    # 1. Filter Data (Using the correct 'date_str' column from your script)
     mask = (
         (df['date_str'] == date) & 
         (df['hour'] == h) & 
         (df['minute'] == m)
     )
     subset = df[mask]
-    
-    # 3. Merge with Geometry
-    # We use a LEFT join so we keep all buildings (even if occupancy is 0)
+
+    # 2. Merge with Geometry
+    # We use LEFT join to keep all buildings, even if they have 0 people
     merged = campus.merge(subset, on=CODE_COL, how='left')
     
-    # 4. Fill Missing Values (Empty buildings = 0 occupancy)
-    merged['occupancy'] = merged['device_count'].fillna(0).astype(int)
+    # 3. Fill Missing Values
+    # --- THE FIX: Use 'occupancy' instead of 'device_count' ---
+    if 'occupancy' in merged.columns:
+        # If the column exists, fill NaNs with 0
+        merged['occupancy'] = merged['occupancy'].fillna(0).astype(int)
+    else:
+        # If something went wrong and the merge didn't find data
+        # Check if maybe pandas renamed it to 'occupancy_y' during merge
+        if 'occupancy_y' in merged.columns:
+             merged['occupancy'] = merged['occupancy_y'].fillna(0).astype(int)
+        else:
+            print(f"   ⚠️ Warning: 'occupancy' column missing after merge. Columns: {merged.columns.tolist()}")
+            merged['occupancy'] = 0
+    # -----------------------------------------------------------
     
-    # 5. Return as GeoJSON
     return json.loads(merged.to_json())
 
 @app.get("/timeline")
