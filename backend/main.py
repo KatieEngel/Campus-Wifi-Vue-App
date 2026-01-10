@@ -137,95 +137,66 @@ def get_metadata():
         "categories": list(db["campus"]['building_category'].unique())
     }
 
-@app.get("/heatmap")
-def get_heatmap(date: str, hour: str, minute: str):
-    """
-    Returns GeoJSON with occupancy data for a specific time.
-    Accepts hour/minute as strings to be safe, then converts to int.
-    """
-    try:
-        # 1. Manually convert to int to be safe
-        h = int(float(hour)) # Handles "12.0" or "12"
-        m = int(float(minute))
-        
-        print(f"   📍 Heatmap Request: Date={date}, H={h}, M={m}")
-    except ValueError:
-        print(f"   ❌ Invalid Time Format: H={hour}, M={minute}")
-        raise HTTPException(status_code=400, detail="Invalid hour/minute format")
-
-    if db["data"] is None or db["campus"] is None:
+# 1. NEW: Static Geometry Endpoint (Called ONCE)
+@app.get("/geometry")
+def get_campus_geometry():
+    """Returns the building shapes (GeoJSON) without occupancy data."""
+    if db["campus"] is None:
         raise HTTPException(status_code=500, detail="Data not loaded")
     
+    # Return raw GeoJSON. The browser will cache this.
+    return json.loads(db["campus"].to_json())
+
+# 2. NEW: Lightweight Data Endpoint (Called FREQUENTLY)
+@app.get("/occupancy")
+def get_occupancy(date: str, hour: str, minute: str):
+    """Returns a lightweight JSON list: [{'id': '077', 'count': 50}, ...]"""
+    try:
+        h = int(float(hour))
+        m = int(float(minute))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid format")
+
     df = db["data"]
-    campus = db["campus"]
+    if df is None: raise HTTPException(status_code=500, detail="Data not loaded")
     
-    # Filter Data (Using the correct 'date_str' column from your script)
-    mask = (
-        (df['date_str'] == date) & 
-        (df['hour'] == h) & 
-        (df['minute'] == m)
-    )
+    # Filter
+    mask = ((df['date_str'] == date) & (df['hour'] == h) & (df['minute'] == m))
     subset = df[mask]
-
-    columns_to_keep = [CODE_COL] # Start with the ID
-
-    # Check which column name we have for occupancy
-    if 'occupancy' in subset.columns:
-        columns_to_keep.append('occupancy')
-    elif 'device_count' in subset.columns:
-        columns_to_keep.append('device_count')
     
-    subset = subset[columns_to_keep]
-
-    # Merge with Geometry
-    # We use LEFT join to keep all buildings, even if they have 0 people
-    merged = campus.merge(subset, on=CODE_COL, how='left')
-
-    # --- Re-assert that this is a GeoDataFrame ---
-    # Pandas merge sometimes strips the "Geo" status. We put it back.
-    if 'geometry' in merged.columns:
-        merged = gpd.GeoDataFrame(merged, geometry='geometry')
-    # -----------------------------------------------------
+    # We only return the ID and the Count (Super small payload)
+    result = []
     
-    # Fill Occupancy & Cleanup
-    if 'occupancy' in merged.columns:
-        merged['occupancy'] = merged['occupancy'].fillna(0).astype(int)
-    elif 'device_count' in merged.columns:
-        merged['occupancy'] = merged['device_count'].fillna(0).astype(int)
-    else:
-        merged['occupancy'] = 0
+    # Pre-calculate building categories to send down (optional, but helpful for coloring)
+    # Actually, let's assume the frontend knows the category from the Geometry load.
+    # We just send ID and Count.
     
-    return json.loads(merged.to_json())
+    for _, row in subset.iterrows():
+        result.append({
+            "code": row[CODE_COL],     # e.g. "077"
+            "count": int(row['occupancy'] if 'occupancy' in row else row.get('device_count', 0))
+        })
+        
+    return result
 
 @app.get("/timeline")
 def get_timeline(date: str):
-    """
-    Returns aggregated timeline data for the charts
-    """
     df = db["data"]
     if df is None: raise HTTPException(status_code=500, detail="Data not loaded")
 
     daily_data = df[df['date_str'] == date].copy()
-    
     if daily_data.empty: return []
 
-    # Aggregation Logic (Same as Streamlit)
-    # 1. By Category
     df_cat = daily_data.groupby(['time_bin', 'building_category'])['occupancy'].sum().reset_index()
-    
-    # 2. Total
     df_total = daily_data.groupby('time_bin')['occupancy'].sum().reset_index()
     df_total['building_category'] = 'Total'
     
     combined = pd.concat([df_cat, df_total])
     
-    # Format for frontend: List of dicts
     result = []
     for _, row in combined.iterrows():
-        # --- Explicitly format timestamp to string ---
-        t_str = row['time_bin'].strftime('%H:%M') 
-        # ----------------------------------------------------
-        
+        # Ensure timestamp is a string
+        t_str = row['time_bin'].strftime('%H:%M')
         result.append({
             "time": t_str,
             "category": row['building_category'],

@@ -5,26 +5,26 @@ import OccupancyChart from './components/OccupancyChart.vue';
 import MapLegend from './components/MapLegend.vue';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
 // State
 const dates = ref([]);
 const selectedDate = ref('');
 const timeValue = ref(720); // Minutes from midnight (12:00 PM default)
-const heatmapData = ref(null);
+
+// Data State
+const geometryData = ref(null);   // Static Shapes
+const occupancyData = ref([]);    // Dynamic Numbers
 const timelineData = ref([]);
+
 const loading = ref(false);
+
+// Map/Search State
 const searchQuery = ref("");
 const mapTarget = ref(null);
-
-const searchSuggestions = ref([]); // Store the list of "Did you mean?"
-const showSuggestions = ref(false); // Toggle the UI
-
+const searchSuggestions = ref([]);
+const showSuggestions = ref(false);
 const currentMaxRes = ref(100);
 const currentMaxNonRes = ref(100);
-
-function handleMaxUpdate(payload) {
-  currentMaxRes.value = payload.res;
-  currentMaxNonRes.value = payload.nonRes;
-}
 
 // Helper to convert slider (0-1440) to Hour/Minute
 function minsToTime(val) {
@@ -52,19 +52,33 @@ function formatTime24(val) {
   return `${hStr}:${mStr}`;
 }
 
+function handleMaxUpdate(payload) {
+  currentMaxRes.value = payload.res;
+  currentMaxNonRes.value = payload.nonRes;
+}
+
 // API Calls
 async function fetchMetadata() {
   try {
     const res = await fetch(`${API_URL}/metadata`);
     const data = await res.json();
-    dates.value = data.dates;
-    if(dates.value.length > 0) selectedDate.value = dates.value[0];
-  } catch (e) {
-    console.error("Backend offline?", e);
-  }
-  
+    if (data.dates) {
+      dates.value = data.dates;
+      if (!selectedDate.value) selectedDate.value = dates.value[0];
+    }
+  } catch (e) { console.error(e); }
 }
 
+// Fetch Geometry (Run Once)
+async function fetchGeometry() {
+  try {
+    console.log("Fetching static geometry...");
+    const res = await fetch(`${API_URL}/geometry`);
+    geometryData.value = await res.json();
+  } catch (e) { console.error("Geo Load Fail", e); }
+}
+
+// 2. Update Dynamic Data (Run Often)
 async function updateDashboard() {
   if (!selectedDate.value) return;
   loading.value = true;
@@ -72,19 +86,14 @@ async function updateDashboard() {
   const { h, m } = minsToTime(timeValue.value);
   
   try {
-    // 1. Fetch Map Data
-    const mapRes = await fetch(
-      `${API_URL}/heatmap?date=${selectedDate.value}&hour=${h}&minute=${m}`
-    );
-    const jsonData = await mapRes.json();
-    // --- DEBUG LOG ---
-    console.log("App.vue received data:", jsonData); 
-    // -----------------
-    heatmapData.value = jsonData;
+    // A. Fetch Map Numbers (Lightweight)
+    const occRes = await fetch(`${API_URL}/occupancy?date=${selectedDate.value}&hour=${h}&minute=${m}`);
+    if (occRes.ok) occupancyData.value = await occRes.json();
 
-    // 2. Fetch Timeline Data (Only needs to happen when Date changes, but safe to call here)
-    const chartRes = await fetch(`${API_URL}/timeline?date=...`);
-    timelineData.value = await chartRes.json();
+    // B. Fetch Timeline (Only needs to run if Date changes, but safe to run here)
+    // We can optimize this to only run when 'date' changes if we wanted.
+    const chartRes = await fetch(`${API_URL}/timeline?date=${selectedDate.value}`);
+    if (chartRes.ok) timelineData.value = await chartRes.json();
 
   } catch (e) {
     console.error(e);
@@ -93,60 +102,47 @@ async function updateDashboard() {
   }
 }
 
+// Search Logic
 async function handleSearch() {
   if (!searchQuery.value) return;
-
-  // Reset previous states
   showSuggestions.value = false;
-  searchSuggestions.value = [];
   
   try {
-    const res = await fetch(`${API_URL}/search?q=...`);
-    if (res.status === 404) {
-      alert("No building match found.");
-      return;
-    }
+    const res = await fetch(`${API_URL}/search?q=${searchQuery.value}`);
+    if (res.status === 404) { alert("No match"); return; }
     
-    const response = await res.json();
-
-    if (response.type === "exact") {
-      // 1. High Confidence: Zoom immediately
-      console.log("Zooming to:", response.data.name);
-      mapTarget.value = { 
-        lat: response.data.lat, 
-        lon: response.data.lon, 
-        name: response.data.name 
-      };
-      searchQuery.value = ""; // Clear box
-    } 
-    else if (response.type === "suggestions") {
-      // 2. Low Confidence: Show the "Did you mean?" list
-      searchSuggestions.value = response.data;
+    const data = await res.json();
+    if (data.type === 'exact') {
+      mapTarget.value = { lat: data.data.lat, lon: data.data.lon, name: data.data.name };
+      searchQuery.value = "";
+    } else if (data.type === 'suggestions') {
+      searchSuggestions.value = data.data;
       showSuggestions.value = true;
     }
-
-  } catch (e) {
-    console.error(e);
-  }
+  } catch (e) { console.error(e); }
 }
 
-// NEW: Function when user clicks a suggestion
-function acceptSuggestion(buildingName) {
-  searchQuery.value = buildingName; // Fill box with correct name
-  handleSearch(); // Auto-search again (will hit "exact" this time)
+function acceptSuggestion(name) {
+  searchQuery.value = name;
+  handleSearch();
 }
-
-// Create a unique key that changes whenever Date OR Time changes
-const mapRenderKey = computed(() => {
-  return `${selectedDate.value}-${timeValue.value}`;
-});
 
 // Watchers
-watch(timeValue, updateDashboard);
 watch(selectedDate, updateDashboard);
 
-onMounted(() => {
-  fetchMetadata();
+// Debounce Slider
+let timeout = null;
+watch(timeValue, () => {
+  if (timeout) clearTimeout(timeout);
+  timeout = setTimeout(() => {
+    updateDashboard();
+  }, 100); // 100ms delay is enough to feel instant but save bandwidth
+});
+
+onMounted(async () => {
+  await fetchMetadata(); // Get dates
+  fetchGeometry();       // Get shapes
+  updateDashboard();     // Get initial numbers
 });
 </script>
 
@@ -210,10 +206,10 @@ onMounted(() => {
         <div class="map-panel">
           <div style="flex: 1; min-height: 0;">
              <CampusMap 
-              :geoJsonData="heatmapData" 
-              :renderKey="mapRenderKey"
+              :geometry="geometryData" 
+              :occupancyData="occupancyData"
               :flyTo="mapTarget"
-              @update-max="handleMaxUpdate"
+              @update-max="handleMaxUpdate" 
             />
           </div>
           
