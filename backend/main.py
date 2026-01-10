@@ -44,10 +44,14 @@ async def lifespan(app: FastAPI):
         if PARQUET_FILE.exists():
             df = pd.read_parquet(PARQUET_FILE)
 
-            print(f"DEBUG: Parquet Columns: {df.columns.tolist()}") 
+            print(f"DEBUG: Parquet Columns: {df.columns.tolist()}")
+
+            
 
             # ... (Existing cleaning logic) ...
             df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
+            # Remove leading zeros (073 -> 73)
+            df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.lstrip('0')
             df['time_bin'] = pd.to_datetime(df['time_bin'])
             df['date_str'] = df['time_bin'].dt.strftime('%Y-%m-%d')
             df['hour'] = df['time_bin'].dt.hour
@@ -84,6 +88,7 @@ async def lifespan(app: FastAPI):
             # 3. Data Cleaning
             if 'BLDG_CODE' in campus_gdf.columns:
                  campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
+                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.lstrip('0')
             
             if 'BLDG_TYPE' in campus_gdf.columns:
                 campus_gdf['building_category'] = campus_gdf['BLDG_TYPE'].apply(classify_building_type)
