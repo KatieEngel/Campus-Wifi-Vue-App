@@ -181,21 +181,18 @@ def get_heatmap(date: str, hour: str, minute: str):
         merged = gpd.GeoDataFrame(merged, geometry='geometry')
     # -----------------------------------------------------
     
-    # 3. Fill Missing Values
-    # --- THE FIX: Use 'occupancy' instead of 'device_count' ---
+    # Fill Occupancy
     if 'occupancy' in merged.columns:
-        # If the column exists, fill NaNs with 0
         merged['occupancy'] = merged['occupancy'].fillna(0).astype(int)
     else:
-        # If something went wrong and the merge didn't find data
-        # Check if maybe pandas renamed it to 'occupancy_y' during merge
-        if 'occupancy_y' in merged.columns:
-             merged['occupancy'] = merged['occupancy_y'].fillna(0).astype(int)
-        else:
-            print(f"   ⚠️ Warning: 'occupancy' column missing after merge. Columns: {merged.columns.tolist()}")
-            merged['occupancy'] = 0
-    # -----------------------------------------------------------
+        merged['occupancy'] = 0
     
+    # --- THE FIX: Clean up non-serializable columns ---
+    # Drop timestamp objects that confuse the JSON serializer
+    cols_to_drop = ['time_bin', 'time', 'date_str'] # Add any other time columns here
+    merged = merged.drop(columns=[c for c in cols_to_drop if c in merged.columns])
+    # --------------------------------------------------
+
     return json.loads(merged.to_json())
 
 @app.get("/timeline")
