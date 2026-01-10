@@ -222,8 +222,12 @@ def get_timeline(date: str):
     # Format for frontend: List of dicts
     result = []
     for _, row in combined.iterrows():
+        # --- Explicitly format timestamp to string ---
+        t_str = row['time_bin'].strftime('%H:%M') 
+        # ----------------------------------------------------
+        
         result.append({
-            "time": row['time_bin'].strftime('%H:%M'),
+            "time": t_str,
             "category": row['building_category'],
             "occupancy": int(row['occupancy'])
         })
