@@ -43,15 +43,16 @@ async def lifespan(app: FastAPI):
     try:
         if PARQUET_FILE.exists():
             df = pd.read_parquet(PARQUET_FILE)
-
-            print(f"DEBUG: Parquet Columns: {df.columns.tolist()}")
-
             
-
-            # ... (Existing cleaning logic) ...
+            # --- CLEANING ---
+            # Remove decimals
             df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
-            # Remove leading zeros (073 -> 73)
-            df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.lstrip('0')
+            # Remove leading zeros
+            df['BLDG_CODE'] = df['BLDG_CODE'].str.lstrip('0')
+            # Remove whitespace & force uppercase
+            df['BLDG_CODE'] = df['BLDG_CODE'].str.strip().str.upper()
+            # ----------------
+
             df['time_bin'] = pd.to_datetime(df['time_bin'])
             df['date_str'] = df['time_bin'].dt.strftime('%Y-%m-%d')
             df['hour'] = df['time_bin'].dt.hour
@@ -71,24 +72,21 @@ async def lifespan(app: FastAPI):
     # 2. Load GeoJSON Geometry
     try:
         if GEOJSON_FILE.exists():
-            # 1. Load Raw JSON
             with open(GEOJSON_FILE, 'r') as f:
                 geojson_data = json.load(f)
             
-            # 2. Convert to GeoDataFrame
             campus_gdf = gpd.GeoDataFrame.from_features(geojson_data["features"])
             
-            # --- THE FIX: Try to set CRS, but ignore if it crashes ---
             try:
                 campus_gdf.set_crs("EPSG:4326", inplace=True)
-            except Exception as e:
-                print(f"   ⚠️ Warning: Could not set CRS tag (PROJ error), proceeding without it. Data is likely fine.")
-            # ---------------------------------------------------------
+            except Exception:
+                print(f"   ⚠️ Warning: Could not set CRS tag.")
 
-            # 3. Data Cleaning
+            # --- MAP CLEANING ---
             if 'BLDG_CODE' in campus_gdf.columns:
                  campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
-                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.lstrip('0')
+                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].str.lstrip('0')
+                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].str.strip().str.upper()
             
             if 'BLDG_TYPE' in campus_gdf.columns:
                 campus_gdf['building_category'] = campus_gdf['BLDG_TYPE'].apply(classify_building_type)
