@@ -65,7 +65,6 @@ async def lifespan(app: FastAPI):
         db["data"] = None
 
     # 2. Load GeoJSON Geometry
-    # 2. Load GeoJSON Geometry
     try:
         if GEOJSON_FILE.exists():
             # 1. Load Raw JSON
@@ -160,7 +159,7 @@ def get_heatmap(date: str, hour: str, minute: str):
     df = db["data"]
     campus = db["campus"]
     
-    # 1. Filter Data (Using the correct 'date_str' column from your script)
+    # Filter Data (Using the correct 'date_str' column from your script)
     mask = (
         (df['date_str'] == date) & 
         (df['hour'] == h) & 
@@ -168,10 +167,17 @@ def get_heatmap(date: str, hour: str, minute: str):
     )
     subset = df[mask]
 
-    if 'geometry' in subset.columns:
-        subset = subset.drop(columns=['geometry'])
+    columns_to_keep = [CODE_COL] # Start with the ID
 
-    # 2. Merge with Geometry
+    # Check which column name we have for occupancy
+    if 'occupancy' in subset.columns:
+        columns_to_keep.append('occupancy')
+    elif 'device_count' in subset.columns:
+        columns_to_keep.append('device_count')
+    
+    subset = subset[columns_to_keep]
+
+    # Merge with Geometry
     # We use LEFT join to keep all buildings, even if they have 0 people
     merged = campus.merge(subset, on=CODE_COL, how='left')
 
@@ -181,18 +187,14 @@ def get_heatmap(date: str, hour: str, minute: str):
         merged = gpd.GeoDataFrame(merged, geometry='geometry')
     # -----------------------------------------------------
     
-    # Fill Occupancy
+    # Fill Occupancy & Cleanup
     if 'occupancy' in merged.columns:
         merged['occupancy'] = merged['occupancy'].fillna(0).astype(int)
+    elif 'device_count' in merged.columns:
+        merged['occupancy'] = merged['device_count'].fillna(0).astype(int)
     else:
         merged['occupancy'] = 0
     
-    # --- THE FIX: Clean up non-serializable columns ---
-    # Drop timestamp objects that confuse the JSON serializer
-    cols_to_drop = ['time_bin', 'time', 'date_str'] # Add any other time columns here
-    merged = merged.drop(columns=[c for c in cols_to_drop if c in merged.columns])
-    # --------------------------------------------------
-
     return json.loads(merged.to_json())
 
 @app.get("/timeline")
