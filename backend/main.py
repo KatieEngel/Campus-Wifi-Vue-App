@@ -168,6 +168,9 @@ def get_heatmap(date: str, hour: str, minute: str):
     )
     subset = df[mask]
 
+    if 'geometry' in subset.columns:
+        subset = subset.drop(columns=['geometry'])
+
     # 2. Merge with Geometry
     # We use LEFT join to keep all buildings, even if they have 0 people
     merged = campus.merge(subset, on=CODE_COL, how='left')
