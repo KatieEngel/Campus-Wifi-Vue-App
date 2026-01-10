@@ -44,14 +44,17 @@ async def lifespan(app: FastAPI):
         if PARQUET_FILE.exists():
             df = pd.read_parquet(PARQUET_FILE)
             
-            # --- CLEANING ---
-            # Remove decimals
-            df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
-            # Remove leading zeros
+            # --- DATA CLEANING (Match ETL Logic) ---
+            # 1. Extract only the numbers (Remove 'F', 'N', etc.)
+            # This matches your ETL script: wifi['bid_no_letters'] = ...extract(r'(\d+)')
+            df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.extract(r'(\d+)')[0]
+            
+            # 2. Remove leading zeros (051 -> 51)
             df['BLDG_CODE'] = df['BLDG_CODE'].str.lstrip('0')
-            # Remove whitespace & force uppercase
-            df['BLDG_CODE'] = df['BLDG_CODE'].str.strip().str.upper()
-            # ----------------
+            
+            # 3. Handle NaNs (if any codes were purely letters)
+            df['BLDG_CODE'] = df['BLDG_CODE'].fillna('0')
+            # ---------------------------------------
 
             df['time_bin'] = pd.to_datetime(df['time_bin'])
             df['date_str'] = df['time_bin'].dt.strftime('%Y-%m-%d')
@@ -80,13 +83,18 @@ async def lifespan(app: FastAPI):
             try:
                 campus_gdf.set_crs("EPSG:4326", inplace=True)
             except Exception:
-                print(f"   ⚠️ Warning: Could not set CRS tag.")
+                pass
 
-            # --- MAP CLEANING ---
+            # --- MAP CLEANING (Apply same logic as Data) ---
             if 'BLDG_CODE' in campus_gdf.columns:
-                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
+                 # 1. Extract only the numbers (051F -> 051)
+                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.extract(r'(\d+)')[0]
+                 
+                 # 2. Remove leading zeros (051 -> 51)
                  campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].str.lstrip('0')
-                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].str.strip().str.upper()
+                 
+                 # 3. Handle NaNs
+                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].fillna('0')
             
             if 'BLDG_TYPE' in campus_gdf.columns:
                 campus_gdf['building_category'] = campus_gdf['BLDG_TYPE'].apply(classify_building_type)
