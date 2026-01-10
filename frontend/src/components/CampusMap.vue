@@ -4,7 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { LMap, LTileLayer } from "@vue-leaflet/vue-leaflet";
 import L from 'leaflet';
 
-// Icons setup (keep existing)
+// Icons setup
 import iconRetinaUrl from 'leaflet/dist/images/marker-icon-2x.png';
 import iconUrl from 'leaflet/dist/images/marker-icon.png';
 import shadowUrl from 'leaflet/dist/images/marker-shadow.png';
@@ -22,7 +22,9 @@ const emit = defineEmits(['update-max']);
 const zoom = ref(15);
 const map = ref(null);
 let geoJsonLayer = null;
-let layerLookup = {}; // Maps Building Code -> Leaflet Layer
+
+let layersByCode = {}; // Use this for coloring (Guaranteed unique buildings)
+let layersByName = {}; // Use this for search zooming
 
 // Colors
 const RES_COLORS = ['#FFEDF0', '#FFC9D4', '#FF9FAD', '#FF6384', '#DC143C', '#8B0000'];
@@ -53,13 +55,16 @@ function getColor(occupancy, category) {
   return '#737373'; 
 }
 
-// 1. Initialize Map Geometry (Runs Once)
+// 1. Initialize Map Geometry
 function initMapLayer() {
   if (!map.value || !map.value.leafletObject || !props.geometry) return;
   const leafletMap = map.value.leafletObject;
 
   if (geoJsonLayer) leafletMap.removeLayer(geoJsonLayer);
-  layerLookup = {};
+  
+  // Reset Lookups
+  layersByCode = {};
+  layersByName = {};
 
   geoJsonLayer = L.geoJSON(props.geometry, {
     style: { fillColor: '#737373', weight: 1, color: '#333', fillOpacity: 0.8 },
@@ -72,18 +77,27 @@ function initMapLayer() {
       layer.feature.properties._staticCategory = feature.properties.building_category;
       
       // Initial Popup
-      layer.bindPopup(`<b>${name}</b><br>Loading...`);
+      const initialContent = `
+        <div style="font-family: sans-serif; font-size: 14px;">
+          <h4 style="margin:0 0 5px;">${name}</h4>
+          <div>Occupancy: <strong>0</strong></div>
+          <div>Type: ${feature.properties.building_category}</div>
+        </div>
+      `;
+      layer.bindPopup(initialContent);
 
-      if (code) layerLookup[code] = layer;
-      // Also map name for search
-      if (name) layerLookup[name] = layer; 
+      // Populate separate lookups
+      if (code) layersByCode[code] = layer;
+      if (name) layersByName[name] = layer;
     }
   }).addTo(leafletMap);
+
+  updateColors();
 }
 
 // 2. Update Colors (Runs Fast)
 function updateColors() {
-  if (!props.occupancyData) return;
+  const data = props.occupancyData || [];
 
   // A. Reset Max calculations
   maxRes = 10; 
@@ -91,18 +105,16 @@ function updateColors() {
   
   // Create a map of code -> count for O(1) lookup
   const countMap = {};
-  props.occupancyData.forEach(d => {
+  data.forEach(d => {
     countMap[d.code] = d.count;
   });
 
   // Calculate Max first
-  for (const code in layerLookup) {
-    const layer = layerLookup[code];
-    // Skip if it's the search alias (name key)
-    if (!code.match(/^\d/)) continue; 
-
+  // Calculate Max first (Iterate ONLY the codes)
+  for (const code in layersByCode) {
+    const layer = layersByCode[code];
     const cat = layer.feature.properties._staticCategory;
-    const count = countMap[code] || 0;
+    const count = countMap[code] || 0; // Default to 0 if missing
 
     if (cat === 'Residential' && count > maxRes) maxRes = count;
     if (cat === 'Non-Residential' && count > maxNonRes) maxNonRes = count;
@@ -111,12 +123,9 @@ function updateColors() {
   emit('update-max', { res: maxRes, nonRes: maxNonRes });
 
   // B. Apply Colors
-  for (const code in layerLookup) {
-    // Only iterate codes, skip the name aliases
-    if (!code.match(/^\d/)) continue; 
-
-    const layer = layerLookup[code];
-    const count = countMap[code] || 0;
+  for (const code in layersByCode) {
+    const layer = layersByCode[code];
+    const count = countMap[code] || 0; // Default to 0
     const cat = layer.feature.properties._staticCategory;
     const name = layer.feature.properties.BLDG_NAME;
 
@@ -145,7 +154,8 @@ watch(() => props.flyTo, (target) => {
     const leafletMap = map.value.leafletObject;
     leafletMap.flyTo([target.lat, target.lon], 18, { animate: true, duration: 1.5 });
     
-    const targetLayer = layerLookup[target.name] || layerLookup[target.code];
+    // Check both lookups to be safe
+    const targetLayer = layersByName[target.name] || layersByCode[target.code];
     if (targetLayer) setTimeout(() => targetLayer.openPopup(), 500);
   }
 });
