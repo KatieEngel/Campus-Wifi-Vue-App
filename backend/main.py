@@ -35,27 +35,22 @@ def classify_building_type(bldg_type):
     else:
         return 'Non-Residential'
 
+id_bridge = {}
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Loading Data...")
     
-    # 1. Load Parquet Data
+    # 1. Load Parquet Data (Keep existing logic)
     try:
         if PARQUET_FILE.exists():
             df = pd.read_parquet(PARQUET_FILE)
             
-            # --- DATA CLEANING (Match ETL Logic) ---
-            # 1. Extract only the numbers (Remove 'F', 'N', etc.)
-            # This matches your ETL script: wifi['bid_no_letters'] = ...extract(r'(\d+)')
-            df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.extract(r'(\d+)')[0]
+            # Clean Parquet IDs to be pure numbers (matches your ETL)
+            # Remove decimals and leading zeros
+            df['BLDG_CODE'] = df['BLDG_CODE'].astype(str).str.replace(r'\.0$', '', regex=True)
+            df['BLDG_CODE'] = df['BLDG_CODE'].str.lstrip('0') 
             
-            # 2. Remove leading zeros (051 -> 51)
-            df['BLDG_CODE'] = df['BLDG_CODE'].str.lstrip('0')
-            
-            # 3. Handle NaNs (if any codes were purely letters)
-            df['BLDG_CODE'] = df['BLDG_CODE'].fillna('0')
-            # ---------------------------------------
-
             df['time_bin'] = pd.to_datetime(df['time_bin'])
             df['date_str'] = df['time_bin'].dt.strftime('%Y-%m-%d')
             df['hour'] = df['time_bin'].dt.hour
@@ -66,13 +61,12 @@ async def lifespan(app: FastAPI):
             db["dates"] = sorted(df['date_str'].unique().tolist())
             print(f"   ✅ Loaded {len(df)} occupancy records.")
         else:
-            print(f"   ❌ Error: Parquet file not found at {PARQUET_FILE}")
+            print(f"   ❌ Error: Parquet not found")
             db["data"] = None
     except Exception as e:
-        print(f"   ❌ CRITICAL PARQUET ERROR: {e}")
-        db["data"] = None
+        print(f"   ❌ Parquet Error: {e}")
 
-    # 2. Load GeoJSON Geometry
+    # 2. Load GeoJSON & Build Bridge
     try:
         if GEOJSON_FILE.exists():
             with open(GEOJSON_FILE, 'r') as f:
@@ -85,33 +79,43 @@ async def lifespan(app: FastAPI):
             except Exception:
                 pass
 
-            # --- MAP CLEANING (Apply same logic as Data) ---
+            # --- BUILD THE BRIDGE (The Fix) ---
+            # We iterate through every building in the Map.
+            # We calculate what its "Clean ID" would be (digits only).
+            # We map the Clean ID to the Real ID.
             if 'BLDG_CODE' in campus_gdf.columns:
-                 # 1. Extract only the numbers (051F -> 051)
-                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str).str.extract(r'(\d+)')[0]
-                 
-                 # 2. Remove leading zeros (051 -> 51)
-                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].str.lstrip('0')
-                 
-                 # 3. Handle NaNs
-                 campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].fillna('0')
+                # Ensure Real ID is string
+                campus_gdf['BLDG_CODE'] = campus_gdf['BLDG_CODE'].astype(str)
+                
+                for real_id in campus_gdf['BLDG_CODE'].unique():
+                    # Calculate "Clean ID" using the same logic as the Parquet data
+                    # 1. Extract digits
+                    import re
+                    match = re.search(r'(\d+)', real_id)
+                    if match:
+                        clean_id = match.group(1).lstrip('0')
+                        
+                        # Add to bridge
+                        if clean_id not in id_bridge:
+                            id_bridge[clean_id] = []
+                        id_bridge[clean_id].append(real_id)
             
+            # Note: We DO NOT overwrite BLDG_CODE in the GDF anymore.
+            # We keep '191N' as '191N' so the frontend map stays unique.
+            
+            # Map categories
             if 'BLDG_TYPE' in campus_gdf.columns:
                 campus_gdf['building_category'] = campus_gdf['BLDG_TYPE'].apply(classify_building_type)
             else:
                 campus_gdf['building_category'] = "Unknown"
                 
             db["campus"] = campus_gdf
-            print(f"   ✅ Loaded {len(campus_gdf)} building geometries.")
+            print(f"   ✅ Loaded {len(campus_gdf)} buildings. Bridge size: {len(id_bridge)}")
         else:
-            print(f"   ❌ Error: GeoJSON file not found at {GEOJSON_FILE}")
-            db["campus"] = None
+             print(f"   ❌ Error: GeoJSON not found")
             
     except Exception as e:
-        print(f"   ❌ CRITICAL GEOJSON ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        db["campus"] = None
+        print(f"   ❌ GeoJSON Error: {e}")
         
     yield
     db["data"] = None
@@ -148,7 +152,7 @@ def get_metadata():
         "categories": list(db["campus"]['building_category'].unique())
     }
 
-# 1. NEW: Static Geometry Endpoint (Called ONCE)
+# Static Geometry Endpoint (Called ONCE)
 @app.get("/geometry")
 def get_campus_geometry():
     """Returns the building shapes (GeoJSON) without occupancy data."""
@@ -158,10 +162,9 @@ def get_campus_geometry():
     # Return raw GeoJSON. The browser will cache this.
     return json.loads(db["campus"].to_json())
 
-# 2. NEW: Lightweight Data Endpoint (Called FREQUENTLY)
+# Update Occupancy Endpoint to use the Bridge
 @app.get("/occupancy")
 def get_occupancy(date: str, hour: str, minute: str):
-    """Returns a lightweight JSON list: [{'id': '077', 'count': 50}, ...]"""
     try:
         h = int(float(hour))
         m = int(float(minute))
@@ -175,18 +178,24 @@ def get_occupancy(date: str, hour: str, minute: str):
     mask = ((df['date_str'] == date) & (df['hour'] == h) & (df['minute'] == m))
     subset = df[mask]
     
-    # We only return the ID and the Count (Super small payload)
     result = []
     
-    # Pre-calculate building categories to send down (optional, but helpful for coloring)
-    # Actually, let's assume the frontend knows the category from the Geometry load.
-    # We just send ID and Count.
-    
     for _, row in subset.iterrows():
-        result.append({
-            "code": row[CODE_COL],     # e.g. "077"
-            "count": int(row['occupancy'] if 'occupancy' in row else row.get('device_count', 0))
-        })
+        data_id = row[CODE_COL] # This is the "Clean ID" (e.g. "191")
+        count = int(row['occupancy'] if 'occupancy' in row else row.get('device_count', 0))
+        
+        # LOOKUP: Which Map IDs correspond to this Data ID?
+        # If "191" is in the bridge, we get ["191N", "191S"]
+        if data_id in id_bridge:
+            real_ids = id_bridge[data_id]
+            for real_id in real_ids:
+                result.append({
+                    "code": real_id, # Send "191N" to frontend
+                    "count": count   # Send 50
+                })
+        else:
+            # Fallback: Just send the ID as is (maybe it matches exactly)
+            result.append({"code": data_id, "count": count})
         
     return result
 
