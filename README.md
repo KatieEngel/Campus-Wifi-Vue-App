@@ -3,6 +3,7 @@
 ![Status](https://img.shields.io/badge/Status-Production-green.svg)
 ![Stack](https://img.shields.io/badge/Stack-Vue.js_%7C_FastAPI-blue.svg)
 ![Deployment](https://img.shields.io/badge/Deploy-Netlify_%2B_Render-orange.svg)
+[![Live Demo](https://img.shields.io/badge/Demo-Launch_App-success?style=for-the-badge&logo=vue.js)](https://campus-wifi-vue-app.netlify.app/)
 
 ## 📖 Project Overview
 The **GT Campus Wi-Fi Occupancy Visualization** is a spatial analytics research tool developed within the **Aerospace Systems Design Laboratory (ASDL)**. Its primary objective is to model and visualize human occupancy patterns across the Georgia Tech campus.
@@ -12,8 +13,12 @@ By processing over **1.3 million** Wi-Fi connection logs from 146 campus facilit
 ### 🏗️ Architectural Evolution
 This project represents a complete re-engineering of an initial data science prototype into a scalable web application.
 
-* **[View the Legacy Prototype (v1)](./prototype_v1)**: Originally built in **Streamlit**. While effective for data validation, the monolithic architecture required reloading the entire map payload (5MB+) on every interaction, causing significant latency.
-* **Current Production (v2)**: Re-architected as a **Decoupled Client-Server Application**. I migrated the frontend to **Vue.js** for non-blocking UI updates and built a **FastAPI** microservice for high-performance spatial querying.
+* **[View the Legacy Prototype (Streamlit)](https://gatech-campus-wifi.streamlit.app/)**:
+ Originally built as a monolithic script. While effective for data validation, it required reloading the entire map payload (5MB+) on every interaction.
+    * *Source Code: [./prototype_v1](./prototype_v1)*
+* **[View the Production App (Vue + FastAPI)](https://campus-wifi-vue-app.netlify.app/)**: Re-architected as a **Decoupled Client-Server Application**. Migrated to **Vue.js** for non-blocking UI updates and **FastAPI** for high-performance spatial querying.
+
+> **Note:** The production backend on Render spins down after inactivity. Please allow ~1 minute for the initial boot-up when visiting the live link.
 
 ---
 
