@@ -3,7 +3,7 @@
 ![Status](https://img.shields.io/badge/Status-Production-green.svg)
 ![Stack](https://img.shields.io/badge/Stack-Vue.js_%7C_FastAPI-blue.svg)
 ![Deployment](https://img.shields.io/badge/Deploy-Netlify_%2B_Render-orange.svg)
-[![Live Demo](https://img.shields.io/badge/Demo-Launch_App-success?style=for-the-badge&logo=vue.js)](https://campus-wifi-vue-app.netlify.app/)
+![Live Demo](https://img.shields.io/badge/Demo-Launch_App-success?style=for-the-badge&logo=vue.js)(https://campus-wifi-vue-app.netlify.app/)
 
 ## 📖 Project Overview
 The **GT Campus Wi-Fi Occupancy Visualization** is a spatial analytics research tool developed within the **Aerospace Systems Design Laboratory (ASDL)**. Its primary objective is to model and visualize human occupancy patterns across the Georgia Tech campus.
