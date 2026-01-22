@@ -16,6 +16,12 @@ const geometryData = ref(null);   // Static Shapes
 const occupancyData = ref([]);    // Dynamic Numbers
 const timelineData = ref([]);
 
+// Fixed color scale min/max values (set once from metadata, using quantiles)
+const globalMinRes = ref(0);
+const globalMaxRes = ref(100);
+const globalMinNonRes = ref(0);
+const globalMaxNonRes = ref(100);
+
 const loading = ref(false);
 
 // Map/Search State
@@ -23,7 +29,9 @@ const searchQuery = ref("");
 const mapTarget = ref(null);
 const searchSuggestions = ref([]);
 const showSuggestions = ref(false);
+const currentMinRes = ref(0);
 const currentMaxRes = ref(100);
+const currentMinNonRes = ref(0);
 const currentMaxNonRes = ref(100);
 
 // Helper to convert slider (0-1440) to Hour/Minute
@@ -53,8 +61,10 @@ function formatTime24(val) {
 }
 
 function handleMaxUpdate(payload) {
-  currentMaxRes.value = payload.res;
-  currentMaxNonRes.value = payload.nonRes;
+  currentMaxRes.value = payload.maxRes;
+  currentMaxNonRes.value = payload.maxNonRes;
+  currentMinRes.value = payload.minRes;
+  currentMinNonRes.value = payload.minNonRes;
 }
 
 // API Calls
@@ -66,6 +76,11 @@ async function fetchMetadata() {
       dates.value = data.dates;
       if (!selectedDate.value) selectedDate.value = dates.value[0];
     }
+    // Set fixed global quantile-based min/max values for consistent color scaling
+    if (data.global_min_res !== undefined) globalMinRes.value = data.global_min_res;
+    if (data.global_max_res !== undefined) globalMaxRes.value = data.global_max_res;
+    if (data.global_min_non_res !== undefined) globalMinNonRes.value = data.global_min_non_res;
+    if (data.global_max_non_res !== undefined) globalMaxNonRes.value = data.global_max_non_res;
   } catch (e) { console.error(e); }
 }
 
@@ -209,12 +224,19 @@ onMounted(async () => {
               :geometry="geometryData" 
               :occupancyData="occupancyData"
               :flyTo="mapTarget"
+              :globalMinRes="globalMinRes"
+              :globalMaxRes="globalMaxRes"
+              :globalMinNonRes="globalMinNonRes"
+              :globalMaxNonRes="globalMaxNonRes"
+              :selectedDate="selectedDate"
               @update-max="handleMaxUpdate" 
             />
           </div>
           
           <MapLegend 
+            :minRes="currentMinRes"
             :maxRes="currentMaxRes" 
+            :minNonRes="currentMinNonRes"
             :maxNonRes="currentMaxNonRes" 
           />
         </div>

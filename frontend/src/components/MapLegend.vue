@@ -2,53 +2,28 @@
 import { computed } from 'vue';
 
 const props = defineProps({
+  minRes: { type: Number, default: 0 },
   maxRes: { type: Number, default: 100 },
+  minNonRes: { type: Number, default: 0 },
   maxNonRes: { type: Number, default: 100 }
 });
-
 
 const RES_COLORS = ['#FFEDF0', '#FFC9D4', '#FF9FAD', '#FF6384', '#DC143C', '#8B0000'];
 const NON_RES_COLORS = ['#F1F7FF', '#D6E6FF', '#B0D0FF', '#7FB5FF', '#4292C6', '#08519C'];
 const UNK_COLORS = ['#FAFAFA', '#E0E0E0', '#BDBDBD', '#9E9E9E', '#616161', '#212121'];
 
-function generateRanges(maxVal) {
-  const steps = [];
-  steps.push("0"); // Index 0 is always just 0
-
-  // We have 5 buckets for the remaining value (1 to Max)
-  // Buckets: 0-20%, 20-40%, 40-60%, 60-80%, 80-100%
-  for (let i = 1; i <= 5; i++) {
-    const lowerRatio = (i - 1) * 0.2;
-    const upperRatio = i * 0.2;
-    
-    // Calculate integers
-    const start = Math.floor(maxVal * lowerRatio) + 1;
-    let end = Math.floor(maxVal * upperRatio);
-    
-    // Edge case: ensure end is at least start
-    if (end < start) end = start;
-    
-    // Formatting the string
-    if (i === 1) {
-      // First bucket starts at 1
-      steps.push(`1 - ${end}`);
-    } else if (i === 5) {
-      // Last bucket
-      steps.push(`${start} - ${maxVal}`);
-    } else {
-      steps.push(`${start} - ${end}`);
-    }
-  }
-  return steps;
+// Generate CSS gradient for continuous colormap
+function generateGradient(colors) {
+  const stops = colors.map((color, index) => {
+    const percent = (index / (colors.length - 1)) * 100;
+    return `${color} ${percent}%`;
+  }).join(', ');
+  return `linear-gradient(to right, ${stops})`;
 }
 
-// Reactive Computed Properties
-// Whenever props.maxRes changes, this recalculates the labels immediately
-const resRanges = computed(() => generateRanges(props.maxRes));
-const nonResRanges = computed(() => generateRanges(props.maxNonRes));
-
-// Unknown usually doesn't scale, so we keep it generic or scale to 100
-const unkRanges = computed(() => generateRanges(100));
+const resGradient = computed(() => generateGradient(RES_COLORS));
+const nonResGradient = computed(() => generateGradient(NON_RES_COLORS));
+const unkGradient = computed(() => generateGradient(UNK_COLORS));
 </script>
 
 <template>
@@ -58,25 +33,30 @@ const unkRanges = computed(() => generateRanges(100));
       
       <div class="legend-col">
         <h5>Residential</h5>
-        <div v-for="(color, index) in RES_COLORS" :key="'res-'+index" class="legend-item">
-          <span class="color-box" :style="{ backgroundColor: color }"></span>
-          <span class="label">{{ resRanges[index] }}</span>
+        <div class="gradient-bar" :style="{ background: resGradient }"></div>
+        <div class="legend-labels">
+          <span class="label-min">{{ minRes }}</span>
+          <span class="label-max">{{ maxRes }}</span>
         </div>
+        <div class="legend-note">2nd-98th percentile</div>
       </div>
 
       <div class="legend-col">
         <h5>Non-Residential</h5>
-        <div v-for="(color, index) in NON_RES_COLORS" :key="'non-'+index" class="legend-item">
-          <span class="color-box" :style="{ backgroundColor: color }"></span>
-          <span class="label">{{ nonResRanges[index] }}</span>
+        <div class="gradient-bar" :style="{ background: nonResGradient }"></div>
+        <div class="legend-labels">
+          <span class="label-min">{{ minNonRes }}</span>
+          <span class="label-max">{{ maxNonRes }}</span>
         </div>
+        <div class="legend-note">2nd-98th percentile</div>
       </div>
 
       <div class="legend-col">
         <h5>Unknown</h5>
-        <div v-for="(color, index) in UNK_COLORS" :key="'unk-'+index" class="legend-item">
-          <span class="color-box" :style="{ backgroundColor: color }"></span>
-          <span class="label">{{ unkRanges[index] }}</span>
+        <div class="gradient-bar" :style="{ background: unkGradient }"></div>
+        <div class="legend-labels">
+          <span class="label-min">0</span>
+          <span class="label-max">100</span>
         </div>
       </div>
 
@@ -106,7 +86,7 @@ h4 {
 }
 
 h5 {
-  margin: 0 0 6px 0;
+  margin: 0 0 8px 0;
   font-size: 11px;
   color: #666;
   text-transform: uppercase;
@@ -114,24 +94,30 @@ h5 {
   font-weight: 600;
 }
 
-.legend-item {
-  display: flex;
-  align-items: center;
-  margin-bottom: 3px;
-}
-
-.color-box {
-  width: 14px;
-  height: 14px;
-  margin-right: 8px;
+.gradient-bar {
+  width: 100%;
+  height: 20px;
   border: 1px solid #ddd;
-  border-radius: 2px;
-  flex-shrink: 0;
+  border-radius: 3px;
+  margin-bottom: 4px;
 }
 
-.label {
-  font-size: 11px;
-  color: #444;
-  white-space: nowrap;
+.legend-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #666;
+}
+
+.label-min,
+.label-max {
+  font-weight: 500;
+}
+
+.legend-note {
+  font-size: 9px;
+  color: #999;
+  margin-top: 2px;
+  font-style: italic;
 }
 </style>

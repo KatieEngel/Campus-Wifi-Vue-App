@@ -23,7 +23,11 @@ GEOJSON_FILE = DATA_DIR / "campus_buildings_categories.geojson"
 db = {
     "data": None,     # The massive time-series data
     "campus": None,   # The building shapes
-    "dates": []       # List of available dates
+    "dates": [],      # List of available dates
+    "global_min_res": 0,      # Global min (2nd percentile) for Residential (fixed scale)
+    "global_max_res": 0,     # Global max (98th percentile) for Residential (fixed scale)
+    "global_min_non_res": 0, # Global min (2nd percentile) for Non-Residential (fixed scale)
+    "global_max_non_res": 0  # Global max (98th percentile) for Non-Residential (fixed scale)
 }
 
 def classify_building_type(bldg_type):
@@ -59,6 +63,35 @@ async def lifespan(app: FastAPI):
             
             db["data"] = df
             db["dates"] = sorted(df['date_str'].unique().tolist())
+            
+            # Calculate global quantile-based min/max for each category (FIXED SCALE)
+            # Using 2nd and 98th percentiles to avoid outlier skewing
+            # This ensures color mapping is consistent across all time periods
+            if 'building_category' in df.columns and 'occupancy' in df.columns:
+                res_data = df[df['building_category'] == 'Residential']['occupancy']
+                non_res_data = df[df['building_category'] == 'Non-Residential']['occupancy']
+                
+                # Calculate quantiles
+                res_min = res_data.quantile(0.02)
+                res_max = res_data.quantile(0.98)
+                non_res_min = non_res_data.quantile(0.02)
+                non_res_max = non_res_data.quantile(0.98)
+                
+                db["global_min_res"] = int(res_min) if not pd.isna(res_min) else 0
+                db["global_max_res"] = int(res_max) if not pd.isna(res_max) else 100
+                db["global_min_non_res"] = int(non_res_min) if not pd.isna(non_res_min) else 0
+                db["global_max_non_res"] = int(non_res_max) if not pd.isna(non_res_max) else 100
+                
+                print(f"   ✅ Global quantile ranges (2nd-98th percentile):")
+                print(f"      Residential: {db['global_min_res']} - {db['global_max_res']}")
+                print(f"      Non-Residential: {db['global_min_non_res']} - {db['global_max_non_res']}")
+            else:
+                # Fallback if categories not in data
+                db["global_min_res"] = 0
+                db["global_max_res"] = 100
+                db["global_min_non_res"] = 0
+                db["global_max_non_res"] = 100
+            
             print(f"   ✅ Loaded {len(df)} occupancy records.")
         else:
             print(f"   ❌ Error: Parquet not found")
@@ -144,12 +177,16 @@ app.add_middleware(
 
 @app.get("/metadata")
 def get_metadata():
-    """Returns available dates and building categories"""
+    """Returns available dates, building categories, and global quantile-based min/max occupancy values"""
     if db["campus"] is None: return {"error": "Data not loaded"}
     
     return {
         "dates": db["dates"],
-        "categories": list(db["campus"]['building_category'].unique())
+        "categories": list(db["campus"]['building_category'].unique()),
+        "global_min_res": db["global_min_res"],
+        "global_max_res": db["global_max_res"],
+        "global_min_non_res": db["global_min_non_res"],
+        "global_max_non_res": db["global_max_non_res"]
     }
 
 # Static Geometry Endpoint (Called ONCE)
@@ -223,6 +260,38 @@ def get_timeline(date: str):
             "occupancy": int(row['occupancy'])
         })
         
+    return result
+
+@app.get("/building-timeseries")
+def get_building_timeseries(date: str, code: str):
+    """Returns time series occupancy for a specific building on a given date"""
+    df = db["data"]
+    if df is None: raise HTTPException(status_code=500, detail="Data not loaded")
+    
+    # Convert building code to clean ID (handle bridge mapping)
+    # The code from frontend might be "191N" but data has "191"
+    import re
+    match = re.search(r'(\d+)', str(code))
+    clean_id = match.group(1).lstrip('0') if match else code
+    
+    # Filter by date and building code
+    daily_data = df[df['date_str'] == date].copy()
+    if daily_data.empty: return []
+    
+    building_data = daily_data[daily_data[CODE_COL] == clean_id].copy()
+    if building_data.empty: return []
+    
+    # Sort by time
+    building_data = building_data.sort_values('time_bin')
+    
+    result = []
+    for _, row in building_data.iterrows():
+        t_str = row['time_bin'].strftime('%H:%M')
+        result.append({
+            "time": t_str,
+            "occupancy": int(row['occupancy'] if 'occupancy' in row else row.get('device_count', 0))
+        })
+    
     return result
 
 # configuring column names
