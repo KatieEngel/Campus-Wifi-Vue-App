@@ -175,6 +175,14 @@ app.add_middleware(
 
 # --- ENDPOINTS ---
 
+@app.get("/")
+def health_check():
+    """
+    Simple health check endpoint to keep the server awake.
+    Returns 200 OK so cron jobs see the service as 'healthy'.
+    """
+    return {"status": "awake", "message": "Wifi Visualization Backend is running"}
+
 @app.get("/metadata")
 def get_metadata():
     """Returns available dates, building categories, and global quantile-based min/max occupancy values"""
