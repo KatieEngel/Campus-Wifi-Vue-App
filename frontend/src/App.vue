@@ -213,7 +213,7 @@ onMounted(async () => {
 
     <div class="main-content">
       <div class="header">
-        <h1>Campus Occupancy Visualizer</h1>
+        <h1>Building Occupancy</h1>
       </div>
 
       <div class="viz-container">
